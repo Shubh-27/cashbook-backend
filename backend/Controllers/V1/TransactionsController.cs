@@ -15,9 +15,9 @@ namespace backend.Controllers.V1
         }
 
         [HttpGet]
-        public async Task<IActionResult> Get([FromQuery] string? accountId, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 50)
+        public async Task<IActionResult> Get([FromQuery] string? accountId, [FromQuery] string? descriptionSid, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 50)
         {
-            var result = await _transactionRepository.GetTransactions(accountId, search, page, limit);
+            var result = await _transactionRepository.GetTransactions(accountId, descriptionSid, search, page, limit);
             return Ok(new { data = result.Data, total = result.TotalCount });
         }
 

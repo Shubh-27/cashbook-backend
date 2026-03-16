@@ -15,7 +15,7 @@ namespace backend.service.Repository.Implementation
             _unitOfWork = unitOfWork;
         }
 
-        public async Task<(List<TransactionResponseModel> Data, int TotalCount)> GetTransactions(string? accountSID, string? search, int page, int limit)
+        public async Task<(List<TransactionResponseModel> Data, int TotalCount)> GetTransactions(string? accountSID, string? descriptionSID, string? search, int page, int limit)
         {
             var repo = _unitOfWork.GetRepository<Transactions>();
             var accRepo = _unitOfWork.GetRepository<Accounts>();
@@ -28,11 +28,23 @@ namespace backend.service.Repository.Implementation
                 if (account == null) return (new List<TransactionResponseModel>(), 0);
             }
 
+            Descriptions? description = null;
+            if (!string.IsNullOrEmpty(descriptionSID))
+            {
+                description = await descRepo.SingleOrDefaultAsync(x => x.DescriptionSID == descriptionSID);
+                if (description == null) return (new List<TransactionResponseModel>(), 0);
+            }
+
             var query = (await repo.GetAllAsync()).AsQueryable();
 
             if (account != null)
             {
                 query = query.Where(t => t.AccountID == account.AccountID);
+            }
+
+            if (description != null)
+            {
+                query = query.Where(t => t.DescriptionID == description.DescriptionID);
             }
 
             if (!string.IsNullOrEmpty(search))
