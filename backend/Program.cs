@@ -27,6 +27,12 @@ namespace backend
             else
             {
                 dbConnectionString = builder.Configuration["DefaultConnection"] ?? string.Empty;
+
+                if (string.IsNullOrEmpty(dbConnectionString))
+                {
+                    // Fallback for development if appsettings.json is missing
+                    dbConnectionString = "Data Source=cashbook.db;Cache=Shared;Pooling=True;";
+                }
             }
 
             #region ||DBContext configuration||
