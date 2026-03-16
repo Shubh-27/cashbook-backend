@@ -4,79 +4,54 @@ using backend.model.RequestModel;
 using backend.model.ResponseModel;
 using backend.service.Repository.Interface;
 using backend.service.UnitOfWork;
+using static backend.common.Constants;
+using backend.common.Models;
+using backend.common.Extensions;
+using backend.model.Models.Views;
+using backend.model.Data;
 
 namespace backend.service.Repository.Implementation
 {
     public class AccountRepository : IAccountRepository
     {
+        #region Variables & Constructor
         private readonly IUnitOfWork _unitOfWork;
         public AccountRepository(IUnitOfWork unitOfWork)
         {
             _unitOfWork = unitOfWork;
         }
+        #endregion
 
-        public async Task<List<AccountResponseModel>> GetAccounts()
+        #region Search
+        public async Task<PagedResult<VwAccountsList>> Search(SearchRequestModel request)
         {
-            var accounts = await _unitOfWork.GetRepository<Accounts>().GetAllAsync();
-            return [.. accounts.Select(x => CommonHelper.UpdateModel(x, new AccountResponseModel()))];
-        }
+            var context = ((IUnitOfWork<AppDbContext>)_unitOfWork).Context;
+            var query = context.VwAccountsList.AsQueryable();
 
-        public async Task<List<AccountResponseModel>> GetAccountBalances()
-        {
-            var accounts = await _unitOfWork.GetRepository<Accounts>().GetAllAsync();
-            var txRepo = _unitOfWork.GetRepository<Transactions>();
-            var allTxs = await txRepo.GetAllAsync();
-
-            var result = new List<AccountResponseModel>();
-            foreach (var acc in accounts)
+            // Generic Search
+            if (!string.IsNullOrEmpty(request.Search))
             {
-                var model = CommonHelper.UpdateModel(acc, new AccountResponseModel());
-                
-                // Find latest transaction for this account
-                var latestTx = allTxs
-                    .Where(t => t.AccountID == acc.AccountID)
-                    .OrderByDescending(t => t.TransactionDate)
-                    .ThenByDescending(t => t.TransactionID)
-                    .FirstOrDefault();
-
-                if (latestTx != null)
-                {
-                    model.Balance = latestTx.Balance;
-                }
-                else
-                {
-                    model.Balance = 0;
-                }
-                
-                result.Add(model);
+                var search = request.Search.ToLower();
+                query = query.Where(x => 
+                    (x.AccountName != null && x.AccountName.ToLower().Contains(search)) ||
+                    (x.BankName != null && x.BankName.ToLower().Contains(search))
+                );
             }
+
+            // Generic Filtering
+            query = query.ApplyFilters(request.Filters);
+
+            // Generic Sorting
+            query = query.ApplySorting(request.SortBy, request.SortOrder);
+
+            // Generic Pagination
+            var result = await query.ToPagedResultAsync(request.Page, request.PageSize);
 
             return result;
         }
+        #endregion
 
-        public async Task<double> GetTotalBalance()
-        {
-            var accounts = await _unitOfWork.GetRepository<Accounts>().GetAllAsync();
-            var txRepo = _unitOfWork.GetRepository<Transactions>();
-            var allTxs = await txRepo.GetAllAsync();
-
-            double total = 0;
-            foreach (var acc in accounts)
-            {
-                var latestTx = allTxs
-                    .Where(t => t.AccountID == acc.AccountID)
-                    .OrderByDescending(t => t.TransactionDate)
-                    .ThenByDescending(t => t.TransactionID)
-                    .FirstOrDefault();
-                
-                if (latestTx != null)
-                {
-                    total += latestTx.Balance ?? 0;
-                }
-            }
-            return total;
-        }
-
+        #region Add Account
         public async Task<AccountResponseModel?> AddAccount(AccountRequestModel request, int? userId = null)
         {
             var newAccount = new Accounts
@@ -89,7 +64,7 @@ namespace backend.service.Repository.Implementation
                 CreatedByUserID = userId,
                 LastModifiedDateTime = DateTime.UtcNow.ToString("O"),
                 LastModifiedByUserID = userId,
-                Status = 1
+                Status = StatusType.Active
             };
 
             var added = await _unitOfWork.GetRepository<Accounts>().InsertAsync(newAccount);
@@ -97,10 +72,12 @@ namespace backend.service.Repository.Implementation
 
             return added.Entity != null ? CommonHelper.UpdateModel(added.Entity, new AccountResponseModel()) : null;
         }
+        #endregion
 
-        public async Task<AccountResponseModel?> UpdateAccount(string accountId, AccountRequestModel request, int? userId = null)
+        #region Update Account
+        public async Task<AccountResponseModel?> UpdateAccount(string accountSID, AccountRequestModel request, int? userId = null)
         {
-            var existing = await _unitOfWork.GetRepository<Accounts>().SingleOrDefaultAsync(x => x.AccountSID == accountId);
+            var existing = await _unitOfWork.GetRepository<Accounts>().SingleOrDefaultAsync(x => x.AccountSID == accountSID);
             if (existing == null) return null;
 
             existing.AccountName = request.AccountName;
@@ -114,25 +91,21 @@ namespace backend.service.Repository.Implementation
 
             return CommonHelper.UpdateModel(existing, new AccountResponseModel());
         }
+        #endregion
 
-        public async Task<bool> DeleteAccount(string accountId)
+        #region Delete Account
+        public async Task<bool> DeleteAccount(string accountSID)
         {
             var accountRepo = _unitOfWork.GetRepository<Accounts>();
-            var existing = await accountRepo.SingleOrDefaultAsync(x => x.AccountSID == accountId);
+            var existing = await accountRepo.SingleOrDefaultAsync(x => x.AccountSID == accountSID);
             if (existing == null) return false;
 
-            var txRepo = _unitOfWork.GetRepository<Transactions>();
-            var txs = await txRepo.GetAllAsync(t => t.AccountID == existing.AccountID);
-            
-            if (txs.Any())
-            {
-                txRepo.Delete(txs);
-                await _unitOfWork.SaveAsync();
-            }
+            existing.Status = StatusType.Delete;
 
-            accountRepo.Delete(existing);
+            _unitOfWork.GetRepository<Accounts>().Update(existing);
             await _unitOfWork.SaveAsync();
             return true;
         }
+        #endregion
     }
 }

@@ -5,7 +5,7 @@ namespace backend.model.ResponseModel
     public class DescriptionResponseModel
     {
         [JsonPropertyName("description_sid")]
-        public string DescriptionSid { get; set; } = null!;
+        public string DescriptionSID { get; set; } = null!;
 
         [JsonPropertyName("description_name")]
         public string DescriptionName { get; set; } = null!;

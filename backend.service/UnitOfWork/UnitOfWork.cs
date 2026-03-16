@@ -111,7 +111,7 @@ namespace backend.service.UnitOfWork
                 Context.ChangeTracker.Clear();
                 return result;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 if (DbContextTransaction != null)
                     await DbContextTransaction.RollbackAsync();

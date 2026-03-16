@@ -371,9 +371,10 @@ AppSetting.*.json
 *.db-journal
 *.db-shm
 *.db-wal
+*.db.bak
 
 # IDE and System
 .idea/
 .DS_Store
 *.log
-
+

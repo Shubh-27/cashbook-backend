@@ -12,40 +12,7 @@ namespace backend
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Determine DB path dynamically.
-            // In production (packaged), store in user's local AppData.
-            // In development, fall back to the relative path in appsettings.json.
-            string dbConnectionString;
-            if (!builder.Environment.IsDevelopment())
-            {
-                var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                var dbFolder = Path.Combine(appDataPath, "BankApp");
-                Directory.CreateDirectory(dbFolder);
-                var dbFilePath = Path.Combine(dbFolder, "bank_transaction_db.db");
-                dbConnectionString = $"Data Source={dbFilePath};Cache=Shared;Pooling=True;";
-            }
-            else
-            {
-                dbConnectionString = builder.Configuration["DefaultConnection"] ?? string.Empty;
-
-                if (string.IsNullOrEmpty(dbConnectionString))
-                {
-                    // Fallback for development if appsettings.json is missing
-                    dbConnectionString = "Data Source=cashbook.db;Cache=Shared;Pooling=True;";
-                }
-            }
-
-            #region ||DBContext configuration||
-
-            builder.Services.AddDbContext<AppDbContext>(options =>
-            {
-                options.UseSqlite(dbConnectionString);
-                options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-                options.EnableSensitiveDataLogging(true);
-
-            }, ServiceLifetime.Scoped);
-
-            #endregion
+            DatabaseServiceExtension.AddDatabase(builder);
 
             builder.Services.AddTransient<IValidatorInterceptor, FluentInterceptor>();
 
@@ -71,12 +38,7 @@ namespace backend
 
             var app = builder.Build();
 
-            // Apply EF Core migrations on startup (creates or upgrades DB schema automatically)
-            using (var scope = app.Services.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                db.Database.Migrate();
-            }
+            DatabaseServiceExtension.ApplyMigrations(app);
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

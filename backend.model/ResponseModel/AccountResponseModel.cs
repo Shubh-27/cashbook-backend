@@ -5,7 +5,7 @@ namespace backend.model.ResponseModel
     public class AccountResponseModel
     {
         [JsonPropertyName("account_sid")]
-        public string AccountSid { get; set; } = null!;
+        public string AccountSID { get; set; } = null!;
 
         [JsonPropertyName("account_name")]
         public string? AccountName { get; set; }

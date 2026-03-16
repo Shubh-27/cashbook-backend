@@ -5,7 +5,7 @@ namespace backend.model.ResponseModel
     public class TransactionResponseModel
     {
         [JsonPropertyName("transaction_sid")]
-        public string TransactionSid { get; set; } = null!;
+        public string TransactionSID { get; set; } = null!;
         
         [JsonPropertyName("transaction_date")]
         public string TransactionDate { get; set; } = null!;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using backend.model.Models;
@@ -19,6 +19,9 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<Transactions> Transactions { get; set; }
 
     public virtual DbSet<Users> Users { get; set; }
+    public virtual DbSet<backend.model.Models.Views.VwTransactionsList> VwTransactionsList { get; set; }
+    public virtual DbSet<backend.model.Models.Views.VwAccountsList> VwAccountsList { get; set; }
+    public virtual DbSet<backend.model.Models.Views.VwDescriptionsList> VwDescriptionsList { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,6 +82,24 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CreatedDateTime).HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(e => e.LastModifiedDateTime).HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(e => e.Status).HasDefaultValue(1);
+        });
+
+        modelBuilder.Entity<backend.model.Models.Views.VwTransactionsList>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("vw_transactions_list");
+        });
+
+        modelBuilder.Entity<backend.model.Models.Views.VwAccountsList>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("vw_accounts_list");
+        });
+
+        modelBuilder.Entity<backend.model.Models.Views.VwDescriptionsList>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("vw_descriptions_list");
         });
 
         OnModelCreatingPartial(modelBuilder);
