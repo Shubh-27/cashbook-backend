@@ -14,9 +14,12 @@ namespace backend
 
             DatabaseServiceExtension.AddDatabase(builder);
 
-            builder.Services.AddTransient<IValidatorInterceptor, FluentInterceptor>();
+            builder.Services.AddControllers()
+                .AddFluentValidation(fv => {
+                    fv.RegisterValidatorsFromAssemblyContaining<backend.Validators.AccountRequestValidator>();
+                });
 
-            builder.Services.AddControllers();
+            builder.Services.AddTransient<IValidatorInterceptor, FluentInterceptor>();
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
@@ -48,6 +51,7 @@ namespace backend
             }
 
             // No HTTPS redirect — this is a local desktop app
+            app.UseHttpStatusCodeExceptionMiddleware();
             app.UseCors("AllowAll");
             app.UseAuthorization();
             app.MapControllers();

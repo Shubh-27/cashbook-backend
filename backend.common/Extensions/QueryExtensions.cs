@@ -63,6 +63,18 @@ namespace backend.common.Extensions
         public static async Task<PagedResult<T>> ToPagedResultAsync<T>(this IQueryable<T> query, int page, int pageSize)
         {
             var totalCount = await query.CountAsync();
+            
+            if (pageSize == -1)
+            {
+                return new PagedResult<T>
+                {
+                    Data = await query.ToListAsync(),
+                    TotalCount = totalCount,
+                    Page = 1,
+                    PageSize = totalCount
+                };
+            }
+
             var p = page > 0 ? page : 1;
             var ps = pageSize > 0 ? pageSize : 50;
 
@@ -103,6 +115,7 @@ namespace backend.common.Extensions
         {
             var condition = filter.Condition?.ToLower();
             var type = property.Type;
+            var isString = type == typeof(string);
 
             switch (condition)
             {
@@ -110,21 +123,42 @@ namespace backend.common.Extensions
                     return Expression.Equal(property, Expression.Constant(ConvertValue(filter.Value, type)));
 
                 case "contains":
-                    if (type != typeof(string)) return null;
+                    if (!isString) return null;
                     var containsMethod = typeof(string).GetMethod("Contains", new[] { typeof(string) });
                     if (containsMethod == null) return null;
                     return Expression.Call(property, containsMethod, Expression.Constant(filter.Value?.ToString()));
 
                 case "greater_than":
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        return Expression.GreaterThan(Expression.Call(property, compareMethod, Expression.Constant(filter.Value?.ToString())), Expression.Constant(0));
+                    }
                     return Expression.GreaterThan(property, Expression.Constant(ConvertValue(filter.Value, type)));
 
                 case "less_than":
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        return Expression.LessThan(Expression.Call(property, compareMethod, Expression.Constant(filter.Value?.ToString())), Expression.Constant(0));
+                    }
                     return Expression.LessThan(property, Expression.Constant(ConvertValue(filter.Value, type)));
 
                 case "between":
                     var fromVal = ConvertValue(filter.From, type);
                     var toVal = ConvertValue(filter.To, type);
                     if (fromVal == null || toVal == null) return null;
+
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        var leftStr = Expression.GreaterThanOrEqual(Expression.Call(property, compareMethod, Expression.Constant(fromVal.ToString())), Expression.Constant(0));
+                        var rightStr = Expression.LessThanOrEqual(Expression.Call(property, compareMethod, Expression.Constant(toVal.ToString())), Expression.Constant(0));
+                        return Expression.AndAlso(leftStr, rightStr);
+                    }
 
                     var left = Expression.GreaterThanOrEqual(property, Expression.Constant(fromVal));
                     var right = Expression.LessThanOrEqual(property, Expression.Constant(toVal));

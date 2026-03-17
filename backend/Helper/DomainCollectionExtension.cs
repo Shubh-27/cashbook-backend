@@ -16,6 +16,7 @@ namespace backend.Helper
             services.AddScoped<IAccountRepository, AccountRepository>();
             services.AddScoped<IDescriptionRepository, DescriptionRepository>();
             services.AddScoped<ITransactionRepository, TransactionRepository>();
+            services.AddScoped<backend.service.Service.Interface.IExportService, backend.service.Service.Implementation.ExportService>();
             return services;
         }
     }

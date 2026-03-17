@@ -378,3 +378,4 @@ AppSetting.*.json
 .DS_Store
 *.log
 
+*.sqlite

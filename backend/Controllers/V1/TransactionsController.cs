@@ -12,9 +12,27 @@ namespace backend.Controllers.V1
     {
         #region Variables & Constructor
         private readonly ITransactionRepository _transactionRepository;
-        public TransactionsController(ITransactionRepository transactionRepository)
+        private readonly backend.service.Service.Interface.IExportService _exportService;
+
+        public TransactionsController(ITransactionRepository transactionRepository, backend.service.Service.Interface.IExportService exportService)
         {
             _transactionRepository = transactionRepository;
+            _exportService = exportService;
+        }
+        #endregion
+
+        #region Export Transactions
+        /// <summary>
+        /// Exports a list of transactions to Excel or CSV based on the specified search criteria.
+        /// </summary>
+        /// <param name="request">The search parameters used to filter the transactions to export. Cannot be null.</param>
+        /// <returns>An HTTP 200 response containing the generated file to download.</returns>
+        [HttpPost("export")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<IActionResult> Export([FromBody] backend.common.Models.ExportRequestModel request)
+        {
+            var (fileBytes, contentType, fileName) = await _exportService.ExportTransactionsAsync(request);
+            return File(fileBytes, contentType, fileName);
         }
         #endregion
 
