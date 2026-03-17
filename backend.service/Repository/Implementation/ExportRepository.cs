@@ -1,32 +1,32 @@
-using System.Text;
-using backend.common.Extensions;
 using backend.common.Models;
-using backend.model.Data;
+using backend.model.Models;
 using backend.model.Models.Views;
-using backend.service.Service.Interface;
+using backend.service.Repository.Interface;
+using backend.service.UnitOfWork;
 using ClosedXML.Excel;
-using Microsoft.EntityFrameworkCore;
+using System.Text;
 
-namespace backend.service.Service.Implementation
+namespace backend.service.Repository.Implementation
 {
-    public class ExportService : IExportService
+    public class ExportRepository : IExportRepository
     {
-        private readonly AppDbContext _context;
-
-        public ExportService(AppDbContext context)
+        #region Variables & Constructor
+        private readonly IUnitOfWork _unitOfWork;
+        public ExportRepository(IUnitOfWork unitOfWork)
         {
-            _context = context;
+            _unitOfWork = unitOfWork;
         }
+        #endregion
 
-        // ─── Public entry point (signature unchanged) ────────────────────────────
+        #region Export Transactions (Excel/CSV)
         public async Task<(byte[] FileContents, string ContentType, string FileName)> ExportTransactionsAsync(ExportRequestModel request)
         {
             // 1. Fetch data
-            var query = _context.VwTransactionsList.AsNoTracking();
-            query = query.ApplyFilters(request.Filters);
-            query = query.OrderBy(x => x.TransactionDate);
-
-            var transactions = await query.ToListAsync();
+            var transactions = await _unitOfWork.GetRepository<VwTransactionsList>().GetAllAsync(
+                predicate: null,
+                orderBy: x => x.OrderBy(t => t.TransactionDate),
+                enableTracking: false
+            );
 
             // 2. Financial year label
             var fy = GetFinancialYearString(request);
@@ -34,23 +34,22 @@ namespace backend.service.Service.Implementation
             // 3. Route to CSV or Excel
             if (request.ExportType.Equals("csv", StringComparison.OrdinalIgnoreCase))
             {
-                var (csvBytes, csvName) = GenerateCsvExport(transactions, request, fy);
+                var (csvBytes, csvName) = GenerateCsvExport(transactions.ToList(), request, fy);
                 return (csvBytes, "text/csv", csvName);
             }
             else
             {
-                var (excelBytes, excelName) = GenerateExcelExport(transactions, request, fy);
+                var (excelBytes, excelName) = GenerateExcelExport(transactions.ToList(), request, fy);
                 return (excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelName);
             }
         }
 
-        // ─── CSV (flat, unchanged behaviour) ─────────────────────────────────────
-        private (byte[] Bytes, string FileName) GenerateCsvExport(
-            List<VwTransactionsList> transactions,
-            ExportRequestModel request,
-            string fy)
+        #region Helpers for Export Transactions (Excel/CSV)
+
+        #region Genrate CSV
+        private (byte[] Bytes, string FileName) GenerateCsvExport(List<VwTransactionsList> transactions, ExportRequestModel request, string fy)
         {
-            var isSelectedAccount = IsSelectedAccountExport(request, out var accountName);
+            var isSelectedAccount = IsSelectedAccountExport(request, out var accountName, out var accountNumber, out var bankName);
             var sb = new StringBuilder();
 
             sb.AppendLine("SR,Date,Account Name,Description Name,Debit,Credit,Balance,Remarks");
@@ -74,16 +73,14 @@ namespace backend.service.Service.Implementation
 
             return (Encoding.UTF8.GetBytes(sb.ToString()), fileName);
         }
+        #endregion
 
-        // ─── Excel main router ────────────────────────────────────────────────────
-        private (byte[] Bytes, string FileName) GenerateExcelExport(
-            List<VwTransactionsList> transactions,
-            ExportRequestModel request,
-            string fy)
+        #region Genrate Excel
+        private (byte[] Bytes, string FileName) GenerateExcelExport(List<VwTransactionsList> transactions, ExportRequestModel request, string fy)
         {
             using var workbook = new XLWorkbook();
 
-            var isSelectedAccount    = IsSelectedAccountExport(request, out var accountName);
+            var isSelectedAccount = IsSelectedAccountExport(request, out var accountName, out var accountNumber, out var bankName);
             var isSelectedDescription = IsSelectedDescriptionExport(request, out var descriptionName);
 
             string fileName;
@@ -91,7 +88,7 @@ namespace backend.service.Service.Implementation
             if (isSelectedAccount)
             {
                 // ── Case B: single account ── Type 1 layout (group by account)
-                BuildAccountSheet(workbook, accountName, transactions, fy);
+                BuildAccountSheet(workbook, accountName, accountNumber, bankName, transactions, fy);
                 fileName = $"Cashbook_{SanitizeFileName(accountName)}_{fy}.xlsx";
             }
             else if (isSelectedDescription)
@@ -107,8 +104,8 @@ namespace backend.service.Service.Implementation
                 if (request.SeparateSheets)
                 {
                     // Type 1 – one sheet per Account
-                    foreach (var grp in transactions.GroupBy(x => new { x.AccountSID, x.AccountName }))
-                        BuildAccountSheet(workbook, grp.Key.AccountName, grp.ToList(), fy);
+                    foreach (var grp in transactions.GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName }))
+                        BuildAccountSheet(workbook, grp.Key.AccountName, grp.Key.AccountNumber, grp.Key.BankName, grp.ToList(), fy);
 
                     // Type 2 – one sheet per Description
                     foreach (var grp in transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }))
@@ -129,25 +126,15 @@ namespace backend.service.Service.Implementation
             workbook.SaveAs(stream);
             return (stream.ToArray(), fileName);
         }
+        #endregion
 
-        // ═════════════════════════════════════════════════════════════════════════
-        //  SHEET BUILDERS
-        // ═════════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Type 1 layout – one sheet, grouped/titled by Account.
-        /// Columns: SR | Date | Payment Detail (Desc) | Debit | Credit | Balance | Remarks
-        /// </summary>
-        private void BuildAccountSheet(
-            XLWorkbook wb,
-            string? accountName,
-            List<VwTransactionsList> transactions,
-            string fy)
+        #region Sheet & Row Builders for Excel
+        private static void BuildAccountSheet(XLWorkbook wb, string? accountName, int? accountNumber, string? bankName, List<VwTransactionsList> transactions, string fy)
         {
-            string sheetName = GetUniqueSheetName(wb, accountName ?? "Account");
+            string sheetName = GetUniqueSheetName(wb, accountName ?? "Account", accountNumber);
             var ws = wb.Worksheets.Add(sheetName);
 
-            WriteSheetHeader(ws, accountName, fy);
+            WriteSheetHeader(ws, sheetName, fy, bankName);
 
             int currentRow = WriteColumnHeaders(ws, isAccountLayout: true);
 
@@ -159,15 +146,7 @@ namespace backend.service.Service.Implementation
             ws.Columns().AdjustToContents();
         }
 
-        /// <summary>
-        /// Type 2 layout – one sheet, grouped/titled by Description.
-        /// Columns: SR | Date | Account Name | Debit | Credit | Balance | Remarks
-        /// </summary>
-        private void BuildDescriptionSheet(
-            XLWorkbook wb,
-            string? descriptionName,
-            List<VwTransactionsList> transactions,
-            string fy)
+        private static void BuildDescriptionSheet(XLWorkbook wb, string? descriptionName, List<VwTransactionsList> transactions, string fy)
         {
             string sheetName = GetUniqueSheetName(wb, descriptionName ?? "Description");
             var ws = wb.Worksheets.Add(sheetName);
@@ -184,29 +163,21 @@ namespace backend.service.Service.Implementation
             ws.Columns().AdjustToContents();
         }
 
-        /// <summary>
-        /// Case A, SeparateSheets=false.
-        /// Single sheet: all Account blocks (Type 1) followed by all Description blocks (Type 2).
-        /// 3 empty rows between every block.
-        /// </summary>
-        private void BuildSingleSheetCaseA(
-            XLWorkbook wb,
-            List<VwTransactionsList> transactions,
-            string fy)
+        private static void BuildSingleSheetCaseA(XLWorkbook wb, List<VwTransactionsList> transactions, string fy)
         {
             var ws = wb.Worksheets.Add("All Transactions");
             int currentRow = 1;
 
             // ── Type 1: one block per Account ────────────────────────────────────
             var accountGroups = transactions
-                .GroupBy(x => new { x.AccountSID, x.AccountName })
+                .GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName })
                 .ToList();
 
             foreach (var grp in accountGroups)
             {
                 var list = grp.ToList();
 
-                WriteSheetHeaderInline(ws, ref currentRow, grp.Key.AccountName, fy);
+                WriteSheetHeaderInline(ws, ref currentRow, grp.Key.AccountName, fy, grp.Key.AccountNumber, grp.Key.BankName);
                 WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
                 WriteTransactionRows(ws, ref currentRow, list, isAccountLayout: true);
                 WriteFooterRow(ws, ref currentRow, list);
@@ -233,67 +204,74 @@ namespace backend.service.Service.Implementation
 
             ws.Columns().AdjustToContents();
         }
+        #endregion
 
-        // ═════════════════════════════════════════════════════════════════════════
-        //  ROW WRITERS
-        // ═════════════════════════════════════════════════════════════════════════
-
-        /// <summary>Row 1 header for a dedicated sheet (accounts for rows 1-2 being the header band).</summary>
-        private void WriteSheetHeader(IXLWorksheet ws, string? title, string fy)
+        #region Row & Sheet Writers for Excel
+        private static void WriteSheetHeader(IXLWorksheet ws, string? title, string fy, string? bankName = null)
         {
-            // Col 1-3: Account/Description name
             ws.Range(1, 1, 1, 3).Merge().Value = title ?? string.Empty;
             ws.Range(1, 1, 1, 3).Style.Font.Bold = true;
-            ws.Range(1, 1, 1, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            ws.Range(1, 1, 1, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            // Col 4-5: FY label
-            ws.Range(1, 4, 1, 5).Merge().Value = $"FY {fy}";
-            ws.Range(1, 4, 1, 5).Style.Font.Bold = true;
-            ws.Range(1, 4, 1, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (!string.IsNullOrWhiteSpace(bankName))
+            {
+                ws.Range(1, 4, 1, 5).Merge().Value = $"FY {fy}";
+                ws.Range(1, 4, 1, 5).Style.Font.Bold = true;
+                ws.Range(1, 4, 1, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            // Col 6-7: title repeated right-aligned
-            ws.Range(1, 6, 1, 7).Merge().Value = title ?? string.Empty;
-            ws.Range(1, 6, 1, 7).Style.Font.Bold = true;
-            ws.Range(1, 6, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Range(1, 6, 1, 7).Merge().Value = bankName ?? string.Empty;
+                ws.Range(1, 6, 1, 7).Style.Font.Bold = true;
+                ws.Range(1, 6, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+            else
+            {
+                ws.Range(1, 4, 1, 7).Merge().Value = $"FY {fy}";
+                ws.Range(1, 4, 1, 7).Style.Font.Bold = true;
+                ws.Range(1, 4, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
         }
 
-        /// <summary>Inline header block used inside a single-sheet export.</summary>
-        private void WriteSheetHeaderInline(IXLWorksheet ws, ref int currentRow, string? title, string fy)
+        private static void WriteSheetHeaderInline(IXLWorksheet ws, ref int currentRow, string? title, string fy, int? accountNumber = null, string? bankName = null)
         {
+            if (accountNumber.HasValue)
+                title = $"{title} ({accountNumber})";
             ws.Range(currentRow, 1, currentRow, 3).Merge().Value = title ?? string.Empty;
             ws.Range(currentRow, 1, currentRow, 3).Style.Font.Bold = true;
-            ws.Range(currentRow, 1, currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            ws.Range(currentRow, 1, currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            ws.Range(currentRow, 4, currentRow, 5).Merge().Value = $"FY {fy}";
-            ws.Range(currentRow, 4, currentRow, 5).Style.Font.Bold = true;
-            ws.Range(currentRow, 4, currentRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (!string.IsNullOrWhiteSpace(bankName))
+            {
+                ws.Range(currentRow, 4, currentRow, 5).Merge().Value = $"FY {fy}";
+                ws.Range(currentRow, 4, currentRow, 5).Style.Font.Bold = true;
+                ws.Range(currentRow, 4, currentRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            ws.Range(currentRow, 6, currentRow, 7).Merge().Value = title ?? string.Empty;
-            ws.Range(currentRow, 6, currentRow, 7).Style.Font.Bold = true;
-            ws.Range(currentRow, 6, currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-
+                ws.Range(currentRow, 6, currentRow, 7).Merge().Value = bankName ?? string.Empty;
+                ws.Range(currentRow, 6, currentRow, 7).Style.Font.Bold = true;
+                ws.Range(currentRow, 6, currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+            else
+            {
+                ws.Range(currentRow, 4, currentRow, 7).Merge().Value = $"FY {fy}";
+                ws.Range(currentRow, 4, currentRow, 7).Style.Font.Bold = true;
+                ws.Range(currentRow, 4, currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
             currentRow++;
         }
 
-        /// <summary>
-        /// Writes column header row for a dedicated sheet.
-        /// Returns the next available row after headers (i.e. first data row).
-        /// </summary>
-        private int WriteColumnHeaders(IXLWorksheet ws, bool isAccountLayout)
+        private static int WriteColumnHeaders(IXLWorksheet ws, bool isAccountLayout)
         {
             int headerRow = 3; // Row 1 = sheet header, Row 2 = blank gap
             WriteColumnHeaderRow(ws, headerRow, isAccountLayout);
             return headerRow + 1;
         }
 
-        /// <summary>Writes column header row inline (single-sheet mode) and advances currentRow.</summary>
-        private void WriteColumnHeadersInline(IXLWorksheet ws, ref int currentRow, bool isAccountLayout)
+        private static void WriteColumnHeadersInline(IXLWorksheet ws, ref int currentRow, bool isAccountLayout)
         {
             WriteColumnHeaderRow(ws, currentRow, isAccountLayout);
             currentRow++;
         }
 
-        private void WriteColumnHeaderRow(IXLWorksheet ws, int row, bool isAccountLayout)
+        private static void WriteColumnHeaderRow(IXLWorksheet ws, int row, bool isAccountLayout)
         {
             ws.Cell(row, 1).Value = "SR";
             ws.Cell(row, 2).Value = "Date";
@@ -305,16 +283,12 @@ namespace backend.service.Service.Implementation
 
             var range = ws.Range(row, 1, row, 7);
             range.Style.Font.Bold = true;
+            range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-            range.Style.Border.InsideBorder  = XLBorderStyleValues.Thin;
+            range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
         }
 
-        /// <summary>Writes all transaction rows, SR resets to 1.</summary>
-        private void WriteTransactionRows(
-            IXLWorksheet ws,
-            ref int currentRow,
-            List<VwTransactionsList> transactions,
-            bool isAccountLayout)
+        private static void WriteTransactionRows(IXLWorksheet ws, ref int currentRow, List<VwTransactionsList> transactions, bool isAccountLayout)
         {
             int sr = 1;
             foreach (var t in transactions)
@@ -322,31 +296,25 @@ namespace backend.service.Service.Implementation
                 ws.Cell(currentRow, 1).Value = sr++;
                 ws.Cell(currentRow, 2).Value = FormatDate(t.TransactionDate);
                 ws.Cell(currentRow, 3).Value = isAccountLayout ? t.DescriptionName : t.AccountName;
-                ws.Cell(currentRow, 4).Value = t.Debit   ?? 0;
-                ws.Cell(currentRow, 5).Value = t.Credit  ?? 0;
+                ws.Cell(currentRow, 4).Value = t.Debit ?? 0;
+                ws.Cell(currentRow, 5).Value = t.Credit ?? 0;
                 ws.Cell(currentRow, 6).Value = string.Empty; // Balance – empty per transaction row
-                ws.Cell(currentRow, 7).Value = t.Notes   ?? string.Empty;
+                ws.Cell(currentRow, 7).Value = t.Notes ?? string.Empty;
 
                 var range = ws.Range(currentRow, 1, currentRow, 7);
                 range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                range.Style.Border.InsideBorder  = XLBorderStyleValues.Thin;
+                range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
                 currentRow++;
             }
         }
 
-        /// <summary>
-        /// Footer row: blank SR/Date/Detail | Sum Debit | Sum Credit | Credit-Debit | blank Remarks
-        /// Styled bold with thin borders.
-        /// </summary>
-        private void WriteFooterRow(
-            IXLWorksheet ws,
-            ref int currentRow,
-            List<VwTransactionsList> transactions)
+        private static void WriteFooterRow(IXLWorksheet ws, ref int currentRow, List<VwTransactionsList> transactions)
         {
-            double totalDebit  = transactions.Sum(t => t.Debit  ?? 0);
+            double totalDebit = transactions.Sum(t => t.Debit ?? 0);
             double totalCredit = transactions.Sum(t => t.Credit ?? 0);
-            double balance     = totalCredit - totalDebit;
+            double balance = totalCredit - totalDebit;
 
             ws.Cell(currentRow, 1).Value = string.Empty;
             ws.Cell(currentRow, 2).Value = string.Empty;
@@ -359,16 +327,15 @@ namespace backend.service.Service.Implementation
             var range = ws.Range(currentRow, 1, currentRow, 7);
             range.Style.Font.Bold = true;
             range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-            range.Style.Border.InsideBorder  = XLBorderStyleValues.Thin;
+            range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             currentRow++;
         }
+        #endregion
 
-        // ═════════════════════════════════════════════════════════════════════════
-        //  HELPERS
-        // ═════════════════════════════════════════════════════════════════════════
-
-        private string FormatDate(string? rawDate)
+        #region Helpers for Export Transactions (Excel/CSV)
+        private static string FormatDate(string? rawDate)
         {
             if (string.IsNullOrWhiteSpace(rawDate)) return string.Empty;
             if (DateTime.TryParse(rawDate, out DateTime dt))
@@ -376,9 +343,12 @@ namespace backend.service.Service.Implementation
             return rawDate;
         }
 
-        private string GetUniqueSheetName(XLWorkbook wb, string baseName)
+        private static string GetUniqueSheetName(XLWorkbook wb, string baseName, int? accountNumber = null)
         {
-            string safeName  = SanitizeSheetName(string.IsNullOrWhiteSpace(baseName) ? "Sheet" : baseName);
+            string safeName = SanitizeSheetName(string.IsNullOrWhiteSpace(baseName) ? "Sheet" : baseName);
+            if (accountNumber.HasValue)
+                safeName = $"{safeName} ({accountNumber.Value})";
+
             string finalName = safeName;
             int counter = 1;
 
@@ -393,16 +363,24 @@ namespace backend.service.Service.Implementation
             return finalName;
         }
 
-        private bool IsSelectedAccountExport(ExportRequestModel request, out string? accountName)
+        private bool IsSelectedAccountExport(ExportRequestModel request, out string? accountName, out int? accountNumber, out string? bankName)
         {
             accountName = null;
+            accountNumber = null;
+            bankName = null;
             var filter = request.Filters?.FirstOrDefault(f =>
                 f.Key == "account_sid" || f.Key == "AccountSID");
 
             if (filter != null && !string.IsNullOrEmpty(filter.Value?.ToString()))
             {
-                var acc = _context.Accounts.FirstOrDefault(a => a.AccountSID == filter.Value.ToString());
-                if (acc != null) accountName = acc.AccountName;
+                var accountSid = filter.Value.ToString();
+                var acc = _unitOfWork.GetRepository<Accounts>().SingleOrDefaultAsync(a => a.AccountSID == accountSid).Result;
+                if (acc != null)
+                {
+                    accountName = acc.AccountName;
+                    accountNumber = acc.AccountNumber;
+                    bankName = acc.BankName;
+                }
                 return true;
             }
             return false;
@@ -416,14 +394,15 @@ namespace backend.service.Service.Implementation
 
             if (filter != null && !string.IsNullOrEmpty(filter.Value?.ToString()))
             {
-                var desc = _context.Descriptions.FirstOrDefault(d => d.DescriptionSID == filter.Value.ToString());
+                var descriptionSid = filter.Value.ToString();
+                var desc = _unitOfWork.GetRepository<Descriptions>().SingleOrDefaultAsync(d => d.DescriptionSID == descriptionSid).Result;
                 if (desc != null) descriptionName = desc.DescriptionName;
                 return true;
             }
             return false;
         }
 
-        private string GetFinancialYearString(ExportRequestModel request)
+        private static string GetFinancialYearString(ExportRequestModel request)
         {
             var dateFilter = request.Filters?.FirstOrDefault(f => f.Type == "date");
             if (dateFilter?.From != null &&
@@ -435,14 +414,14 @@ namespace backend.service.Service.Implementation
             return "AllTime";
         }
 
-        private string SanitizeSheetName(string name)
+        private static string SanitizeSheetName(string name)
         {
             foreach (var c in new[] { '\\', '/', '?', '*', '[', ']', ':' })
                 name = name.Replace(c, '_');
             return name.Length > 31 ? name.Substring(0, 31) : name;
         }
 
-        private string SanitizeFileName(string? name)
+        private static string SanitizeFileName(string? name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "Export";
             foreach (var c in Path.GetInvalidFileNameChars())
@@ -450,12 +429,17 @@ namespace backend.service.Service.Implementation
             return name;
         }
 
-        private string EscapeCsv(string? field)
+        private static string EscapeCsv(string? field)
         {
             if (string.IsNullOrEmpty(field)) return string.Empty;
             if (field.Contains(',') || field.Contains('"') || field.Contains('\n'))
                 return $"\"{field.Replace("\"", "\"\"")}\"";
             return field;
         }
+        #endregion
+
+        #endregion
+
+        #endregion
     }
 }

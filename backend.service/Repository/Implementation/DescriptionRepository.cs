@@ -25,9 +25,8 @@ namespace backend.service.Repository.Implementation
         #region Search
         public async Task<PagedResult<VwDescriptionsList>> Search(SearchRequestModel request)
         {
-            var context = ((IUnitOfWork<AppDbContext>)_unitOfWork).Context;
-            var query = context.VwDescriptionsList.AsQueryable();
-
+            var query = _unitOfWork.GetRepository<VwDescriptionsList>().AsQueryable(enableTracking: false);
+            
             // Generic Search
             if (!string.IsNullOrEmpty(request.Search))
             {

@@ -12,12 +12,12 @@ namespace backend.Controllers.V1
     {
         #region Variables & Constructor
         private readonly ITransactionRepository _transactionRepository;
-        private readonly backend.service.Service.Interface.IExportService _exportService;
+        private readonly IExportRepository _exportRepository;
 
-        public TransactionsController(ITransactionRepository transactionRepository, backend.service.Service.Interface.IExportService exportService)
+        public TransactionsController(ITransactionRepository transactionRepository, IExportRepository exportRepository)
         {
             _transactionRepository = transactionRepository;
-            _exportService = exportService;
+            _exportRepository = exportRepository;
         }
         #endregion
 
@@ -31,7 +31,7 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> Export([FromBody] backend.common.Models.ExportRequestModel request)
         {
-            var (fileBytes, contentType, fileName) = await _exportService.ExportTransactionsAsync(request);
+            var (fileBytes, contentType, fileName) = await _exportRepository.ExportTransactionsAsync(request);
             return File(fileBytes, contentType, fileName);
         }
         #endregion

@@ -151,9 +151,14 @@ namespace backend.Controllers.V1
                 System.IO.File.Copy(tempUploadPath, dbPath, true);
                 System.IO.File.Delete(tempUploadPath);
 
-                _logger.LogInformation("Database successfully restored from {FileName}", file.FileName);
+                _logger.LogInformation("Database file replaced. Applying migrations...");
+                
+                // Apply migrations to ensure the imported database is up to date
+                await _context.Database.MigrateAsync();
 
-                return Ok(new { message = "Database restored successfully. Please restart the application if you encounter any issues." });
+                _logger.LogInformation("Database successfully restored and migrated from {FileName}", file.FileName);
+
+                return Ok(new { message = "Database restored and updated successfully." });
             }
             catch (Exception ex)
             {

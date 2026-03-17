@@ -379,3 +379,4 @@ AppSetting.*.json
 *.log
 
 *.sqlite
+build*.txt

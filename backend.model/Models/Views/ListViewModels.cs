@@ -27,6 +27,10 @@ namespace backend.model.Models.Views
         public string? DescriptionSID { get; set; }
         [JsonPropertyName("description_name")]
         public string? DescriptionName { get; set; }
+        [JsonPropertyName("account_number")]
+        public int? AccountNumber { get; set; }
+        [JsonPropertyName("bank_name")]
+        public string? BankName { get; set; }
     }
 
     public class VwAccountsList

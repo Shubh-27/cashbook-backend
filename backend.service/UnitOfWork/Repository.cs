@@ -1,8 +1,10 @@
-﻿
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Linq.Expressions;
+using backend.common.Models;
+using backend.common.Extensions;
 
 namespace backend.service.UnitOfWork
 {
@@ -28,6 +30,14 @@ namespace backend.service.UnitOfWork
             Expression<Func<T, bool>> predicate = null,
             bool enableTracking = true,
             bool ignoreQueryFilters = false);
+
+        Task<PagedResult<T>> GetPagedResultAsync(
+            SearchRequestModel request,
+            bool enableTracking = true,
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default);
+
+        IQueryable<T> AsQueryable(bool enableTracking = true);
 
         ValueTask<EntityEntry<T>> InsertAsync(T entity,
             CancellationToken cancellationToken = default);
@@ -92,7 +102,34 @@ namespace backend.service.UnitOfWork
             if (predicate != null) query = query.Where(predicate);
             if (ignoreQueryFilters) query = query.IgnoreQueryFilters();
 
+            if (orderBy != null) return await orderBy(query).ToListAsync(cancellationToken);
+
             return await query.ToListAsync(cancellationToken);
+        }
+
+        public virtual async Task<PagedResult<T>> GetPagedResultAsync(
+            SearchRequestModel request,
+            bool enableTracking = true,
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default)
+        {
+            IQueryable<T> query = _dbSet;
+
+            if (!enableTracking) query = query.AsNoTracking();
+            if (ignoreQueryFilters) query = query.IgnoreQueryFilters();
+
+            // Generic Search (can be refined if T has specific properties, but here we use QueryExtensions)
+            query = backend.common.Extensions.QueryExtensions.ApplyFilters(query, request.Filters);
+            query = backend.common.Extensions.QueryExtensions.ApplySorting(query, request.SortBy, request.SortOrder);
+
+            return await backend.common.Extensions.QueryExtensions.ToPagedResultAsync(query, request.Page, request.PageSize);
+        }
+
+        public virtual IQueryable<T> AsQueryable(bool enableTracking = true)
+        {
+            IQueryable<T> query = _dbSet;
+            if (!enableTracking) query = query.AsNoTracking();
+            return query;
         }
 
         public virtual async Task<int> GetCountAsync(
