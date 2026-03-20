@@ -4,7 +4,10 @@ using backend.model.Models.Views;
 using backend.service.Repository.Interface;
 using backend.service.UnitOfWork;
 using ClosedXML.Excel;
-using System.Text;
+using System.Text.Json;
+using System.IO.Compression;
+using backend.common.Extensions;
+using Microsoft.EntityFrameworkCore;
 
 namespace backend.service.Repository.Implementation
 {
@@ -21,102 +24,119 @@ namespace backend.service.Repository.Implementation
         #region Export Transactions (Excel/CSV)
         public async Task<(byte[] FileContents, string ContentType, string FileName)> ExportTransactionsAsync(ExportRequestModel request)
         {
-            // 1. Fetch data
-            var transactions = await _unitOfWork.GetRepository<VwTransactionsList>().GetAllAsync(
-                predicate: null,
-                orderBy: x => x.OrderBy(t => t.TransactionDate),
-                enableTracking: false
-            );
+            // 1. Determine if specific account is selected
+            var accountInfo = await IsSelectedAccountExportAsync(request);
+            var isSelectedAccount = accountInfo.IsSelected;
+            var selectedAccountName = accountInfo.AccountName;
+            var selectedAccountNumber = accountInfo.AccountNumber;
+            var selectedBankName = accountInfo.BankName;
+            
+            // 2. Fetch data with filters
+            // We ignore DescriptionSID filter if an account is selected (as per user request)
+            // Actually, user said "ignore selected description" even for Case A/B generally if it means we group by description anyway.
+            var filtersToApply = request.Filters?.Where(f => 
+                !(f.Key == "description_sid" || f.Key == "DescriptionSID")
+            ).ToList() ?? new List<FilterRequestModel>();
 
-            // 2. Financial year label
+            var query = _unitOfWork.GetRepository<VwTransactionsList>().AsQueryable(enableTracking: false);
+            query = query.ApplyFilters(filtersToApply);
+            query = query.OrderBy(t => t.TransactionDate);
+
+            var transactions = await query.ToListAsync();
+
+            // 3. Financial year label
             var fy = GetFinancialYearString(request);
 
-            // 3. Route to CSV or Excel
-            if (request.ExportType.Equals("csv", StringComparison.OrdinalIgnoreCase))
+            // 4. Case A: ZIP of Excel files for all accounts
+            if (!isSelectedAccount)
             {
-                var (csvBytes, csvName) = GenerateCsvExport(transactions.ToList(), request, fy);
-                return (csvBytes, "text/csv", csvName);
+                var (zipBytes, zipName) = GenerateAllAccountsZipExport(transactions, request, fy);
+                if (!string.IsNullOrWhiteSpace(request.ExcelName))
+                {
+                    zipName = $"{request.ExcelName}.zip";
+                }
+                return (zipBytes, "application/zip", zipName);
             }
-            else
+            
+            // 5. Case B: Single Excel file with multiple description sheets
+            var (excelBytes, excelName) = GenerateSingleAccountExcelExport(transactions, selectedAccountName, selectedAccountNumber, selectedBankName, fy, 0, request.SeparateSheets);
+            if (!string.IsNullOrWhiteSpace(request.ExcelName))
             {
-                var (excelBytes, excelName) = GenerateExcelExport(transactions.ToList(), request, fy);
-                return (excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelName);
+                excelName = $"{request.ExcelName}.xlsx";
             }
-        }
-
-        #region Helpers for Export Transactions (Excel/CSV)
-
-        #region Genrate CSV
-        private (byte[] Bytes, string FileName) GenerateCsvExport(List<VwTransactionsList> transactions, ExportRequestModel request, string fy)
-        {
-            var isSelectedAccount = IsSelectedAccountExport(request, out var accountName, out var accountNumber, out var bankName);
-            var sb = new StringBuilder();
-
-            sb.AppendLine("SR,Date,Account Name,Description Name,Debit,Credit,Balance,Remarks");
-
-            int sr = 1;
-            foreach (var t in transactions)
-            {
-                sb.AppendLine(
-                    $"{sr++}," +
-                    $"{FormatDate(t.TransactionDate)}," +
-                    $"{EscapeCsv(t.AccountName)}," +
-                    $"{EscapeCsv(t.DescriptionName)}," +
-                    $"{t.Debit}," +
-                    $"{t.Credit},," +
-                    $"{EscapeCsv(t.Notes)}");
-            }
-
-            var fileName = isSelectedAccount
-                ? $"Cashbook_{accountName}_{fy}.csv"
-                : $"Cashbook_AllAccounts_{fy}.csv";
-
-            return (Encoding.UTF8.GetBytes(sb.ToString()), fileName);
+            return (excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelName);
         }
         #endregion
 
-        #region Genrate Excel
-        private (byte[] Bytes, string FileName) GenerateExcelExport(List<VwTransactionsList> transactions, ExportRequestModel request, string fy)
+        #region Excel Generation Helpers
+        private (byte[] Bytes, string FileName) GenerateAllAccountsZipExport(List<VwTransactionsList> transactions, ExportRequestModel request, string fy)
+        {
+            var accountGroups = transactions.GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName }).ToList();
+            
+            using var zipStream = new MemoryStream();
+            using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, true))
+            {
+                var count = 0;
+                foreach (var group in accountGroups)
+                {
+                    var (excelBytes, excelName) = GenerateSingleAccountExcelExport(group.ToList(), group.Key.AccountName, group.Key.AccountNumber, group.Key.BankName, fy, count, request.SeparateSheets);
+                    var entry = archive.CreateEntry(excelName);
+                    using var entryStream = entry.Open();
+                    entryStream.Write(excelBytes, 0, excelBytes.Length);
+                }
+            }
+
+            var fileName = $"Cashbook_AllAccounts_{fy}.zip";
+            return (zipStream.ToArray(), fileName);
+        }
+
+        private (byte[] Bytes, string FileName) GenerateSingleAccountExcelExport(List<VwTransactionsList> transactions, string? accountName, int? accountNumber, string? bankName, string fy, int count, bool separateSheets)
         {
             using var workbook = new XLWorkbook();
-
-            var isSelectedAccount = IsSelectedAccountExport(request, out var accountName, out var accountNumber, out var bankName);
-            var isSelectedDescription = IsSelectedDescriptionExport(request, out var descriptionName);
-
-            string fileName;
-
-            if (isSelectedAccount)
+            
+            if (separateSheets)
             {
-                // ── Case B: single account ── Type 1 layout (group by account)
+                // 1st Sheet: Full account transactions
                 BuildAccountSheet(workbook, accountName, accountNumber, bankName, transactions, fy);
-                fileName = $"Cashbook_{SanitizeFileName(accountName)}_{fy}.xlsx";
-            }
-            else if (isSelectedDescription)
-            {
-                // ── Case B: single description ── Type 2 layout (group by description)
-                BuildDescriptionSheet(workbook, descriptionName, transactions, fy);
-                fileName = $"Cashbook_{SanitizeFileName(descriptionName)}_{fy}.xlsx";
+                
+                // Rest of sheets: Group by description
+                var descriptionGroups = transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }).ToList();
+                foreach (var grp in descriptionGroups.OrderBy(g => g.Key.DescriptionName))
+                {
+                    if (string.IsNullOrEmpty(grp.Key.DescriptionName)) continue;
+                    BuildDescriptionSheet(workbook, grp.Key.DescriptionName, grp.ToList(), fy);
+                }
             }
             else
             {
-                // ── Case A: All Accounts + All Descriptions
-                // Always exports Type 1 (by Account) AND Type 2 (by Description) together
-                if (request.SeparateSheets)
-                {
-                    // Type 1 – one sheet per Account
-                    foreach (var grp in transactions.GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName }))
-                        BuildAccountSheet(workbook, grp.Key.AccountName, grp.Key.AccountNumber, grp.Key.BankName, grp.ToList(), fy);
+                // Everything in 1 sheet
+                string sheetName = GetUniqueSheetName(workbook, accountName ?? "Account", accountNumber);
+                var ws = workbook.Worksheets.Add(sheetName);
+                int currentRow = 1;
 
-                    // Type 2 – one sheet per Description
-                    foreach (var grp in transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }))
-                        BuildDescriptionSheet(workbook, grp.Key.DescriptionName, grp.ToList(), fy);
-                }
-                else
+                // Account Table
+                WriteSheetHeaderInline(ws, ref currentRow, accountName, fy, accountNumber, bankName);
+                currentRow++; // Gap before column headers
+                WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
+                WriteTransactionRows(ws, ref currentRow, transactions, isAccountLayout: true);
+                WriteFooterRow(ws, ref currentRow, transactions);
+
+                // Description Tables
+                var descriptionGroups = transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }).ToList();
+                foreach (var grp in descriptionGroups.OrderBy(g => g.Key.DescriptionName))
                 {
-                    // Single sheet: all Account blocks then all Description blocks
-                    BuildSingleSheetCaseA(workbook, transactions, fy);
+                    if (string.IsNullOrEmpty(grp.Key.DescriptionName)) continue;
+
+                    currentRow += 3; // 3 row line spacing between tables
+
+                    WriteSheetHeaderInline(ws, ref currentRow, grp.Key.DescriptionName, fy);
+                    currentRow++; // Gap before column headers
+                    WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
+                    WriteTransactionRows(ws, ref currentRow, grp.ToList(), isAccountLayout: false);
+                    WriteFooterRow(ws, ref currentRow, grp.ToList());
                 }
-                fileName = $"Cashbook_AllAccounts_AllDescriptions_{fy}.xlsx";
+
+                ws.Columns().AdjustToContents();
             }
 
             if (!workbook.Worksheets.Any())
@@ -124,11 +144,13 @@ namespace backend.service.Repository.Implementation
 
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
+            
+            var fileName = $"Cashbook_{SanitizeFileName(accountName, count, accountNumber)}_{fy}.xlsx";
             return (stream.ToArray(), fileName);
         }
         #endregion
 
-        #region Sheet & Row Builders for Excel
+        #region Sheet & Row Builders
         private static void BuildAccountSheet(XLWorkbook wb, string? accountName, int? accountNumber, string? bankName, List<VwTransactionsList> transactions, string fy)
         {
             string sheetName = GetUniqueSheetName(wb, accountName ?? "Account", accountNumber);
@@ -163,50 +185,6 @@ namespace backend.service.Repository.Implementation
             ws.Columns().AdjustToContents();
         }
 
-        private static void BuildSingleSheetCaseA(XLWorkbook wb, List<VwTransactionsList> transactions, string fy)
-        {
-            var ws = wb.Worksheets.Add("All Transactions");
-            int currentRow = 1;
-
-            // ── Type 1: one block per Account ────────────────────────────────────
-            var accountGroups = transactions
-                .GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName })
-                .ToList();
-
-            foreach (var grp in accountGroups)
-            {
-                var list = grp.ToList();
-
-                WriteSheetHeaderInline(ws, ref currentRow, grp.Key.AccountName, fy, grp.Key.AccountNumber, grp.Key.BankName);
-                WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
-                WriteTransactionRows(ws, ref currentRow, list, isAccountLayout: true);
-                WriteFooterRow(ws, ref currentRow, list);
-
-                currentRow += 3; // 3 empty rows separator
-            }
-
-            // ── Type 2: one block per Description ────────────────────────────────
-            var descGroups = transactions
-                .GroupBy(x => new { x.DescriptionSID, x.DescriptionName })
-                .ToList();
-
-            foreach (var grp in descGroups)
-            {
-                var list = grp.ToList();
-
-                WriteSheetHeaderInline(ws, ref currentRow, grp.Key.DescriptionName, fy);
-                WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
-                WriteTransactionRows(ws, ref currentRow, list, isAccountLayout: false);
-                WriteFooterRow(ws, ref currentRow, list);
-
-                currentRow += 3; // 3 empty rows separator
-            }
-
-            ws.Columns().AdjustToContents();
-        }
-        #endregion
-
-        #region Row & Sheet Writers for Excel
         private static void WriteSheetHeader(IXLWorksheet ws, string? title, string fy, string? bankName = null)
         {
             ws.Range(1, 1, 1, 3).Merge().Value = title ?? string.Empty;
@@ -334,7 +312,7 @@ namespace backend.service.Repository.Implementation
         }
         #endregion
 
-        #region Helpers for Export Transactions (Excel/CSV)
+        #region Common Helpers
         private static string FormatDate(string? rawDate)
         {
             if (string.IsNullOrWhiteSpace(rawDate)) return string.Empty;
@@ -363,43 +341,22 @@ namespace backend.service.Repository.Implementation
             return finalName;
         }
 
-        private bool IsSelectedAccountExport(ExportRequestModel request, out string? accountName, out int? accountNumber, out string? bankName)
+        private async Task<(bool IsSelected, string? AccountName, int? AccountNumber, string? BankName)> IsSelectedAccountExportAsync(ExportRequestModel request)
         {
-            accountName = null;
-            accountNumber = null;
-            bankName = null;
             var filter = request.Filters?.FirstOrDefault(f =>
                 f.Key == "account_sid" || f.Key == "AccountSID");
 
             if (filter != null && !string.IsNullOrEmpty(filter.Value?.ToString()))
             {
                 var accountSid = filter.Value.ToString();
-                var acc = _unitOfWork.GetRepository<Accounts>().SingleOrDefaultAsync(a => a.AccountSID == accountSid).Result;
+                var acc = await _unitOfWork.GetRepository<Accounts>().SingleOrDefaultAsync(a => a.AccountSID == accountSid);
                 if (acc != null)
                 {
-                    accountName = acc.AccountName;
-                    accountNumber = acc.AccountNumber;
-                    bankName = acc.BankName;
+                    return (true, acc.AccountName, acc.AccountNumber, acc.BankName);
                 }
-                return true;
+                return (true, null, null, null);
             }
-            return false;
-        }
-
-        private bool IsSelectedDescriptionExport(ExportRequestModel request, out string? descriptionName)
-        {
-            descriptionName = null;
-            var filter = request.Filters?.FirstOrDefault(f =>
-                f.Key == "description_sid" || f.Key == "DescriptionSID");
-
-            if (filter != null && !string.IsNullOrEmpty(filter.Value?.ToString()))
-            {
-                var descriptionSid = filter.Value.ToString();
-                var desc = _unitOfWork.GetRepository<Descriptions>().SingleOrDefaultAsync(d => d.DescriptionSID == descriptionSid).Result;
-                if (desc != null) descriptionName = desc.DescriptionName;
-                return true;
-            }
-            return false;
+            return (false, null, null, null);
         }
 
         private static string GetFinancialYearString(ExportRequestModel request)
@@ -421,12 +378,18 @@ namespace backend.service.Repository.Implementation
             return name.Length > 31 ? name.Substring(0, 31) : name;
         }
 
-        private static string SanitizeFileName(string? name)
+        private static (string, int) SanitizeFileName(string? name, int counter, int? accountNumber = null)
         {
-            if (string.IsNullOrWhiteSpace(name)) return "Export";
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                counter++;
+                return ("Export", counter);
+            }
+            if (accountNumber.HasValue)
+                name = $"{name} ({accountNumber.Value})";
             foreach (var c in Path.GetInvalidFileNameChars())
                 name = name.Replace(c, '_');
-            return name;
+            return (name, counter);;
         }
 
         private static string EscapeCsv(string? field)
@@ -436,10 +399,6 @@ namespace backend.service.Repository.Implementation
                 return $"\"{field.Replace("\"", "\"\"")}\"";
             return field;
         }
-        #endregion
-
-        #endregion
-
         #endregion
     }
 }

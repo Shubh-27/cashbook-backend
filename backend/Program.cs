@@ -35,7 +35,8 @@ namespace backend
                 {
                     policy.AllowAnyOrigin()
                           .AllowAnyHeader()
-                          .AllowAnyMethod();
+                          .AllowAnyMethod()
+                          .WithExposedHeaders("Content-Disposition");
                 });
             });
 
