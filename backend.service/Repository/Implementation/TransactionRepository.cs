@@ -118,9 +118,21 @@ namespace backend.service.Repository.Implementation
         {
             var txRepo = _unitOfWork.GetRepository<Transactions>();
             var descRepo = _unitOfWork.GetRepository<Descriptions>();
+            var accRepo = _unitOfWork.GetRepository<Accounts>();
 
             var existing = await txRepo.SingleOrDefaultAsync(t => t.TransactionSID == transactionSID && t.Status == StatusType.Active);
             if (existing == null) return null;
+
+            // Handle account update
+            Accounts? account = null;
+            if (!string.IsNullOrEmpty(request.AccountSID))
+            {
+                account = await accRepo.SingleOrDefaultAsync(a => a.AccountSID == request.AccountSID && a.Status == StatusType.Active);
+                if (account != null)
+                {
+                    existing.AccountID = account.AccountID;
+                }
+            }
 
             existing.TransactionDate = request.TransactionDate;
             existing.Debit = request.Debit ?? 0;
@@ -161,6 +173,7 @@ namespace backend.service.Repository.Implementation
 
             var result = CommonHelper.UpdateModel(existing, new TransactionResponseModel());
             if (description != null) result.Description = CommonHelper.UpdateModel(description, new DescriptionResponseModel());
+            if (account != null) result.Account = CommonHelper.UpdateModel(account, new AccountResponseModel());
             return result;
         }
         #endregion
