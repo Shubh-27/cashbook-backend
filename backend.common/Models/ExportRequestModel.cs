@@ -18,5 +18,11 @@ namespace backend.common.Models
         
         [JsonPropertyName("description_sid")]
         public string? DescriptionSID { get; set; }
+
+        [JsonPropertyName("merge_accounts")]
+        public bool MergeAccounts { get; set; } = false;
+
+        [JsonPropertyName("merge_descriptions")]
+        public bool MergeDescriptions { get; set; } = false;
     }
 }

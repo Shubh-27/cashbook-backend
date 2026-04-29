@@ -122,6 +122,37 @@ namespace backend.common.Extensions
                 case "equals":
                     return Expression.Equal(property, Expression.Constant(ConvertValue(filter.Value, type)));
 
+                case "in":
+                    // filter.Value should be an array or list of strings
+                    if (filter.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var values = new List<object>();
+                        foreach (var item in jsonElement.EnumerateArray())
+                        {
+                            var convertedItem = ConvertValue(item, type);
+                            if (convertedItem != null) values.Add(convertedItem);
+                        }
+
+                        if (values.Count == 0) return null;
+
+                        var containsMethodIn = typeof(Enumerable).GetMethods()
+                            .Where(m => m.Name == "Contains" && m.GetParameters().Length == 2)
+                            .Single()
+                            .MakeGenericMethod(type);
+
+                        // We create a List<T> of the target type to call Contains on
+                        var listType = typeof(List<>).MakeGenericType(type);
+                        var list = Activator.CreateInstance(listType);
+                        var addMethod = listType.GetMethod("Add");
+                        foreach (var val in values)
+                        {
+                            addMethod!.Invoke(list, new[] { val });
+                        }
+
+                        return Expression.Call(null, containsMethodIn, Expression.Constant(list), property);
+                    }
+                    return null;
+
                 case "contains":
                     if (!isString) return null;
                     var containsMethod = typeof(string).GetMethod("Contains", new[] { typeof(string) });
