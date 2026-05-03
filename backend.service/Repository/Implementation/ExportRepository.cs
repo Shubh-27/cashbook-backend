@@ -15,6 +15,7 @@ namespace backend.service.Repository.Implementation
     {
         #region Variables & Constructor
         private readonly IUnitOfWork _unitOfWork;
+        private const int TableSpacing = 0;
         public ExportRepository(IUnitOfWork unitOfWork)
         {
             _unitOfWork = unitOfWork;
@@ -155,7 +156,7 @@ namespace backend.service.Repository.Implementation
                     WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
                     WriteTransactionRows(ws, ref currentRow, accGroup.ToList(), isAccountLayout: true);
                     WriteFooterRow(ws, ref currentRow, accGroup.ToList());
-                    currentRow += 3;
+                    currentRow += TableSpacing;
                 }
 
                 // Description tables (merged across all accounts)
@@ -166,7 +167,7 @@ namespace backend.service.Repository.Implementation
                     WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
                     WriteTransactionRows(ws, ref currentRow, grp.ToList(), isAccountLayout: false);
                     WriteFooterRow(ws, ref currentRow, grp.ToList());
-                    currentRow += 3;
+                    currentRow += TableSpacing;
                 }
 
                 ws.Columns().AdjustToContents();
@@ -199,8 +200,7 @@ namespace backend.service.Repository.Implementation
                 WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
                 WriteTransactionRows(ws, ref currentRow, accGroup.ToList(), isAccountLayout: true);
                 WriteFooterRow(ws, ref currentRow, accGroup.ToList());
-                
-                currentRow += 3;
+                currentRow += TableSpacing;
             }
 
             var descriptionGroups = transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }).ToList();
@@ -213,8 +213,7 @@ namespace backend.service.Repository.Implementation
                 WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
                 WriteTransactionRows(ws, ref currentRow, grp.ToList(), isAccountLayout: false);
                 WriteFooterRow(ws, ref currentRow, grp.ToList());
-                
-                currentRow += 3;
+                currentRow += TableSpacing;
             }
 
             ws.Columns().AdjustToContents();
@@ -270,6 +269,7 @@ namespace backend.service.Repository.Implementation
                 WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
                 WriteTransactionRows(ws, ref currentRow, transactions, isAccountLayout: true);
                 WriteFooterRow(ws, ref currentRow, transactions);
+                currentRow += TableSpacing;
 
                 // Description Tables
                 var descriptionGroups = transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }).ToList();
@@ -277,13 +277,13 @@ namespace backend.service.Repository.Implementation
                 {
                     if (string.IsNullOrEmpty(grp.Key.DescriptionName)) continue;
 
-                    currentRow += 3; // 3 row line spacing between tables
-
+                    currentRow += TableSpacing;
                     WriteSheetHeaderInline(ws, ref currentRow, grp.Key.DescriptionName, fy);
                     currentRow++; // Gap before column headers
                     WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
                     WriteTransactionRows(ws, ref currentRow, grp.ToList(), isAccountLayout: false);
                     WriteFooterRow(ws, ref currentRow, grp.ToList());
+                    currentRow += TableSpacing;
                 }
 
                 ws.Columns().AdjustToContents();
@@ -354,7 +354,7 @@ namespace backend.service.Repository.Implementation
                 WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
                 WriteTransactionRows(ws, ref currentRow, transactions, isAccountLayout: false);
                 WriteFooterRow(ws, ref currentRow, transactions);
-                currentRow += 3;
+                currentRow += TableSpacing;
             }
 
             ws.Columns().AdjustToContents();
@@ -362,25 +362,21 @@ namespace backend.service.Repository.Implementation
 
         private static void WriteSheetHeader(IXLWorksheet ws, string? title, string fy, string? bankName = null)
         {
+            var headerRange = ws.Range(1, 1, 1, 7);
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Font.FontSize = 14;
+            headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
             ws.Range(1, 1, 1, 3).Merge().Value = title ?? string.Empty;
-            ws.Range(1, 1, 1, 3).Style.Font.Bold = true;
-            ws.Range(1, 1, 1, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             if (!string.IsNullOrWhiteSpace(bankName))
             {
                 ws.Range(1, 4, 1, 5).Merge().Value = $"FY {fy}";
-                ws.Range(1, 4, 1, 5).Style.Font.Bold = true;
-                ws.Range(1, 4, 1, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-
                 ws.Range(1, 6, 1, 7).Merge().Value = bankName ?? string.Empty;
-                ws.Range(1, 6, 1, 7).Style.Font.Bold = true;
-                ws.Range(1, 6, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
             else
             {
                 ws.Range(1, 4, 1, 7).Merge().Value = $"FY {fy}";
-                ws.Range(1, 4, 1, 7).Style.Font.Bold = true;
-                ws.Range(1, 4, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
         }
 
@@ -388,25 +384,22 @@ namespace backend.service.Repository.Implementation
         {
             if (accountNumber.HasValue)
                 title = $"{title} ({accountNumber})";
+
+            var headerRange = ws.Range(currentRow, 1, currentRow, 7);
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Font.FontSize = 14;
+            headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
             ws.Range(currentRow, 1, currentRow, 3).Merge().Value = title ?? string.Empty;
-            ws.Range(currentRow, 1, currentRow, 3).Style.Font.Bold = true;
-            ws.Range(currentRow, 1, currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             if (!string.IsNullOrWhiteSpace(bankName))
             {
                 ws.Range(currentRow, 4, currentRow, 5).Merge().Value = $"FY {fy}";
-                ws.Range(currentRow, 4, currentRow, 5).Style.Font.Bold = true;
-                ws.Range(currentRow, 4, currentRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-
                 ws.Range(currentRow, 6, currentRow, 7).Merge().Value = bankName ?? string.Empty;
-                ws.Range(currentRow, 6, currentRow, 7).Style.Font.Bold = true;
-                ws.Range(currentRow, 6, currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
             else
             {
                 ws.Range(currentRow, 4, currentRow, 7).Merge().Value = $"FY {fy}";
-                ws.Range(currentRow, 4, currentRow, 7).Style.Font.Bold = true;
-                ws.Range(currentRow, 4, currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
             currentRow++;
         }
