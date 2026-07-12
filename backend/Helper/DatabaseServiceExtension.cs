@@ -14,7 +14,17 @@ namespace backend.Helper
         {
             string dbConnectionString;
 
-            if (!builder.Environment.IsDevelopment())
+            var customDbPath = Environment.GetEnvironmentVariable("DATABASE_PATH");
+            if (!string.IsNullOrEmpty(customDbPath))
+            {
+                var dbFolder = Path.GetDirectoryName(customDbPath);
+                if (!string.IsNullOrEmpty(dbFolder))
+                {
+                    Directory.CreateDirectory(dbFolder);
+                }
+                dbConnectionString = $"Data Source={customDbPath};Cache=Shared;Pooling=True;";
+            }
+            else if (!builder.Environment.IsDevelopment())
             {
                 var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 var dbFolder = Path.Combine(appDataPath, "BankApp");
