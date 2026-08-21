@@ -1,9 +1,10 @@
-using backend.model.ResponseModel;
-using backend.service.Repository.Interface;
+using backend.common;
+using backend.model.DbModels.Views;
+using backend.model.RequestModels;
+using backend.model.ResponseModels;
+using backend.service.Repository.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using backend.model.RequestModel;
-using backend.common.Models;
-using backend.model.Models.Views;
 
 namespace backend.Controllers.V1
 {
@@ -12,6 +13,7 @@ namespace backend.Controllers.V1
     {
         #region Variables & Constructor
         private readonly IDescriptionRepository _descriptionRepository;
+
         public DescriptionsController(IDescriptionRepository descriptionRepository)
         {
             _descriptionRepository = descriptionRepository;
@@ -20,9 +22,9 @@ namespace backend.Controllers.V1
 
         #region Get Descriptions
         /// <summary>
-        /// Retrieves a list of all active descriptions from the system. This endpoint is designed to return only descriptions that are currently marked as active.
+        /// Retrieves a list of all active descriptions from the system.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>A list of active description records.</returns>
         [HttpGet]
         [ProducesResponseType(typeof(List<DescriptionResponseModel>), StatusCodes.Status200OK)]
         public async Task<IActionResult> Get()
@@ -34,11 +36,9 @@ namespace backend.Controllers.V1
 
         #region Get Descriptions List
         /// <summary>
-        /// Retrieves a paged list of description records matching the specified search criteria.
+        /// Retrieves a paged list of description records matching the specified search, filter, and sorting criteria.
         /// </summary>
-        /// <remarks>Use this method to obtain descriptions in a paged format based on filters provided in
-        /// the request. The result includes paging information such as total count and page size.</remarks>
-        /// <param name="request">The search parameters used to filter and page the descriptions. Cannot be null.</param>
+        /// <param name="request">The search parameters used to filter, sort, and paginate descriptions.</param>
         /// <returns>An HTTP 200 response containing a paged result of description records that match the search criteria.</returns>
         [HttpPost("list")]
         [ProducesResponseType(typeof(PagedResult<VwDescriptionsList>), StatusCodes.Status200OK)]
@@ -50,14 +50,19 @@ namespace backend.Controllers.V1
         #endregion
 
         #region Add Description
-        /// <param name="request">The request model containing the details required to create a new description. Cannot be null.</param>
-        /// <returns>A task that represents the asynchronous operation. The task result contains a response model with the
-        /// created description details, or null if creation fails.</returns>
+        /// <summary>
+        /// Creates a new description based on the specified request data.
+        /// </summary>
+        /// <param name="request">The request model containing the details required to create a new description.</param>
+        /// <returns>An IActionResult containing the created description details or BadRequest if creation fails.</returns>
         [HttpPost]
-        [ProducesResponseType(typeof(backend.model.ResponseModel.DescriptionResponseModel), StatusCodes.Status200OK)]
-        public async Task<backend.model.ResponseModel.DescriptionResponseModel?> Post([FromBody] DescriptionRequestModel request)
+        [ProducesResponseType(typeof(DescriptionResponseModel), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> Post([FromBody] DescriptionRequestModel request)
         {
-            return await _descriptionRepository.AddDescription(request);
+            var result = await _descriptionRepository.AddDescription(request);
+            if (result == null) return BadRequest("Could not add description.");
+            return Ok(result);
         }
         #endregion
 
@@ -65,30 +70,34 @@ namespace backend.Controllers.V1
         /// <summary>
         /// Updates an existing description entry based on the provided request data.
         /// </summary>
-        /// <param name="descriptionSID">The ID of the description to update.</param>
-        /// <param name="request">The request model containing the updated details for the description. Cannot be null.</param>
-        /// <returns>A task that represents the asynchronous operation. The task result contains a response model with the
-        /// updated description details, or null if the update fails.</returns>
+        /// <param name="descriptionSID">The unique identifier of the description to update.</param>
+        /// <param name="request">The request model containing the updated details for the description.</param>
+        /// <returns>An IActionResult containing the updated description details or NotFound if not found.</returns>
         [HttpPut("{descriptionSID}")]
-        [ProducesResponseType(typeof(backend.model.ResponseModel.DescriptionResponseModel), StatusCodes.Status200OK)]
-        public async Task<backend.model.ResponseModel.DescriptionResponseModel?> Put(string descriptionSID, [FromBody] DescriptionRequestModel request)
+        [ProducesResponseType(typeof(DescriptionResponseModel), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Put(string descriptionSID, [FromBody] DescriptionRequestModel request)
         {
-            return await _descriptionRepository.UpdateDescription(descriptionSID, request);
+            var result = await _descriptionRepository.UpdateDescription(descriptionSID, request);
+            if (result == null) return NotFound();
+            return Ok(result);
         }
         #endregion
 
         #region Delete Description
         /// <summary>
-        /// Deletes an existing description entry based on the provided ID.
+        /// Deletes an existing description entry based on the provided identifier.
         /// </summary>
-        /// <param name="descriptionSID">The ID of the description to delete.</param>
-        /// <returns>A task that represents the asynchronous operation. The task result contains a boolean indicating
-        /// whether the deletion was successful.</returns>
+        /// <param name="descriptionSID">The unique identifier of the description to delete.</param>
+        /// <returns>An IActionResult indicating success or NotFound if the description does not exist.</returns>
         [HttpDelete("{descriptionSID}")]
-        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
-        public async Task<bool> Delete(string descriptionSID)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Delete(string descriptionSID)
         {
-            return await _descriptionRepository.DeleteDescription(descriptionSID);
+            var result = await _descriptionRepository.DeleteDescription(descriptionSID);
+            if (!result) return NotFound();
+            return Ok(new { success = true });
         }
         #endregion
     }

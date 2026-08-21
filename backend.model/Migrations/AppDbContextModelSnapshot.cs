@@ -2,7 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using backend.model.Data;
+using backend.model.DbModels;
 
 #nullable disable
 
@@ -16,7 +16,7 @@ namespace backend.model.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");
 
-            modelBuilder.Entity("backend.model.Models.Accounts", b =>
+            modelBuilder.Entity("backend.model.DbModels.Account", b =>
                 {
                     b.Property<int>("AccountID")
                         .ValueGeneratedOnAdd()
@@ -25,10 +25,11 @@ namespace backend.model.Migrations
                     b.Property<string>("AccountName")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("AccountNumber")
+                    b.Property<long?>("AccountNumber")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("AccountSID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("BankName")
@@ -63,10 +64,10 @@ namespace backend.model.Migrations
                     b.HasIndex(new[] { "AccountSID" }, "IX_Accounts_AccountSID")
                         .IsUnique();
 
-                    b.ToTable("Accounts");
+                    b.ToTable("Accounts", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Descriptions", b =>
+            modelBuilder.Entity("backend.model.DbModels.Description", b =>
                 {
                     b.Property<int>("DescriptionID")
                         .ValueGeneratedOnAdd()
@@ -85,6 +86,7 @@ namespace backend.model.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DescriptionSID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("LastModifiedByUserID")
@@ -105,13 +107,16 @@ namespace backend.model.Migrations
                     b.HasIndex(new[] { "DescriptionID" }, "IX_Descriptions_DescriptionID")
                         .IsUnique();
 
+                    b.HasIndex(new[] { "DescriptionName" }, "IX_Descriptions_DescriptionName")
+                        .IsUnique();
+
                     b.HasIndex(new[] { "DescriptionSID" }, "IX_Descriptions_DescriptionSID")
                         .IsUnique();
 
-                    b.ToTable("Descriptions");
+                    b.ToTable("Descriptions", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Transactions", b =>
+            modelBuilder.Entity("backend.model.DbModels.Transaction", b =>
                 {
                     b.Property<int>("TransactionID")
                         .ValueGeneratedOnAdd()
@@ -167,6 +172,7 @@ namespace backend.model.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TransactionSID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("TransactionID");
@@ -175,16 +181,26 @@ namespace backend.model.Migrations
 
                     b.HasIndex("DescriptionID");
 
+                    b.HasIndex(new[] { "AccountID", "Status" }, "IX_Transactions_AccountID_Status");
+
+                    b.HasIndex(new[] { "DescriptionID", "Status" }, "IX_Transactions_DescriptionID_Status");
+
+                    b.HasIndex(new[] { "Status" }, "IX_Transactions_Status");
+
+                    b.HasIndex(new[] { "Status", "TransactionDate" }, "IX_Transactions_Status_TransactionDate");
+
+                    b.HasIndex(new[] { "TransactionDate" }, "IX_Transactions_TransactionDate");
+
                     b.HasIndex(new[] { "TransactionID" }, "IX_Transactions_TransactionID")
                         .IsUnique();
 
                     b.HasIndex(new[] { "TransactionSID" }, "IX_Transactions_TransactionSID")
                         .IsUnique();
 
-                    b.ToTable("Transactions");
+                    b.ToTable("Transactions", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Users", b =>
+            modelBuilder.Entity("backend.model.DbModels.User", b =>
                 {
                     b.Property<int>("UserID")
                         .ValueGeneratedOnAdd()
@@ -229,6 +245,7 @@ namespace backend.model.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("UserSID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("UserID");
@@ -239,106 +256,129 @@ namespace backend.model.Migrations
                     b.HasIndex(new[] { "UserSID" }, "IX_Users_UserSID")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Views.VwAccountsList", b =>
+            modelBuilder.Entity("backend.model.DbModels.Views.VwAccountsList", b =>
                 {
                     b.Property<string>("AccountName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("account_name");
 
-                    b.Property<int?>("AccountNumber")
-                        .HasColumnType("INTEGER");
+                    b.Property<long?>("AccountNumber")
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("account_number");
 
                     b.Property<string>("AccountSID")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("account_sid");
 
                     b.Property<string>("BankName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("bank_name");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("status");
 
                     b.Property<int>("TransactionCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("transaction_count");
 
                     b.ToTable((string)null);
 
                     b.ToView("vw_accounts_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Views.VwDescriptionsList", b =>
+            modelBuilder.Entity("backend.model.DbModels.Views.VwDescriptionsList", b =>
                 {
                     b.Property<string>("DescriptionName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("description_name");
 
                     b.Property<string>("DescriptionSID")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("description_sid");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("status");
 
                     b.Property<int>("UsageCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("usage_count");
 
                     b.ToTable((string)null);
 
                     b.ToView("vw_descriptions_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Views.VwTransactionsList", b =>
+            modelBuilder.Entity("backend.model.DbModels.Views.VwTransactionsList", b =>
                 {
                     b.Property<string>("AccountName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("account_name");
+
+                    b.Property<long?>("AccountNumber")
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("account_number");
 
                     b.Property<string>("AccountSID")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("account_sid");
 
                     b.Property<double?>("Balance")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("Credit")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("Debit")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("DescriptionName")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DescriptionSID")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("AccountNumber")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("REAL")
+                        .HasJsonPropertyName("balance");
 
                     b.Property<string>("BankName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("bank_name");
+
+                    b.Property<double?>("Credit")
+                        .HasColumnType("REAL")
+                        .HasJsonPropertyName("credit");
+
+                    b.Property<double?>("Debit")
+                        .HasColumnType("REAL")
+                        .HasJsonPropertyName("debit");
+
+                    b.Property<string>("DescriptionName")
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("description_name");
+
+                    b.Property<string>("DescriptionSID")
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("description_sid");
 
                     b.Property<string>("Notes")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("notes");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasJsonPropertyName("status");
 
                     b.Property<string>("TransactionDate")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("transaction_date");
 
                     b.Property<string>("TransactionSID")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasJsonPropertyName("transaction_sid");
 
                     b.ToTable((string)null);
 
                     b.ToView("vw_transactions_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.Models.Transactions", b =>
+            modelBuilder.Entity("backend.model.DbModels.Transaction", b =>
                 {
-                    b.HasOne("backend.model.Models.Accounts", "Account")
+                    b.HasOne("backend.model.DbModels.Account", "Account")
                         .WithMany("Transactions")
                         .HasForeignKey("AccountID");
 
-                    b.HasOne("backend.model.Models.Descriptions", "Description")
+                    b.HasOne("backend.model.DbModels.Description", "Description")
                         .WithMany("Transactions")
                         .HasForeignKey("DescriptionID");
 
@@ -347,12 +387,12 @@ namespace backend.model.Migrations
                     b.Navigation("Description");
                 });
 
-            modelBuilder.Entity("backend.model.Models.Accounts", b =>
+            modelBuilder.Entity("backend.model.DbModels.Account", b =>
                 {
                     b.Navigation("Transactions");
                 });
 
-            modelBuilder.Entity("backend.model.Models.Descriptions", b =>
+            modelBuilder.Entity("backend.model.DbModels.Description", b =>
                 {
                     b.Navigation("Transactions");
                 });

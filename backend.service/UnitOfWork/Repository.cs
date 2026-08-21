@@ -3,8 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Linq.Expressions;
-using backend.common.Models;
-using backend.common.Extensions;
+using backend.common;
 
 namespace backend.service.UnitOfWork
 {
@@ -119,10 +118,10 @@ namespace backend.service.UnitOfWork
             if (ignoreQueryFilters) query = query.IgnoreQueryFilters();
 
             // Generic Search (can be refined if T has specific properties, but here we use QueryExtensions)
-            query = backend.common.Extensions.QueryExtensions.ApplyFilters(query, request.Filters);
-            query = backend.common.Extensions.QueryExtensions.ApplySorting(query, request.SortBy, request.SortOrder);
+            query = query.ApplyFilters(request.Filters);
+            query = query.ApplySorting(request.SortBy, request.SortOrder);
 
-            return await backend.common.Extensions.QueryExtensions.ToPagedResultAsync(query, request.Page, request.PageSize);
+            return await query.ToPagedResultAsync(request.Page, request.PageSize);
         }
 
         public virtual IQueryable<T> AsQueryable(bool enableTracking = true)

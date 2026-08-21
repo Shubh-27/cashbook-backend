@@ -1,4 +1,4 @@
-using backend.model.Data;
+using backend.model.DbModels;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 

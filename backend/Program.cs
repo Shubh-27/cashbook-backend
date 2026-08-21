@@ -1,8 +1,7 @@
-
-using backend.Helper;
-using backend.model.Data;
-using FluentValidation.AspNetCore;
-using Microsoft.EntityFrameworkCore;
+using backend.common;
+using backend.Extensions;
+using backend.Middleware;
+using backend.model.DbModels;
 
 namespace backend
 {
@@ -12,39 +11,29 @@ namespace backend
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            DatabaseServiceExtension.AddDatabase(builder);
+            // Configure AppConfiguration
+            builder.Services.Configure<AppConfiguration>(builder.Configuration);
+            var appSettings = builder.Configuration.Get<AppConfiguration>() ?? new AppConfiguration();
 
-            builder.Services.AddControllers()
-                .AddFluentValidation(fv => {
-                    fv.RegisterValidatorsFromAssemblyContaining<backend.Validators.AccountRequestValidator>();
-                });
+            // Database setup
+            builder.Services.AddDatabase(builder.Configuration, builder.Environment.IsDevelopment());
 
-            builder.Services.AddTransient<IValidatorInterceptor, FluentInterceptor>();
-            builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen();
+            // Core Web API & Validation Services
+            builder.Services.AddWebApiServices();
 
-            #region ||Repository Dependancy||
-            DomainCollectionExtension.AddDomains(builder.Services);
-            UnitOfWorkServiceCollectionExtentions.AddUnitOfWork<AppDbContext>(builder.Services);
-            #endregion
+            // Domain and Unit of Work Registrations
+            builder.Services.AddDomains();
+            builder.Services.AddUnitOfWork<AppDbContext>();
 
-            // CORS: Allow any origin for Electron/local dev usage (no credentials needed)
-            builder.Services.AddCors(options =>
-            {
-                options.AddPolicy("AllowAll", policy =>
-                {
-                    policy.AllowAnyOrigin()
-                          .AllowAnyHeader()
-                          .AllowAnyMethod()
-                          .WithExposedHeaders("Content-Disposition");
-                });
-            });
+            // CORS Policy
+            builder.Services.AddCorsPolicy(appSettings);
 
             var app = builder.Build();
 
+            // Apply migrations on startup
             DatabaseServiceExtension.ApplyMigrations(app);
 
-            // Configure the HTTP request pipeline.
+            // Configure the HTTP request pipeline
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();

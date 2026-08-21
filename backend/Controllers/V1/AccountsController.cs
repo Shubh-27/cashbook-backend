@@ -1,9 +1,10 @@
-using backend.model.ResponseModel;
-using backend.service.Repository.Interface;
+using backend.common;
+using backend.model.DbModels.Views;
+using backend.model.RequestModels;
+using backend.model.ResponseModels;
+using backend.service.Repository.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using backend.model.RequestModel;
-using backend.common.Models;
-using backend.model.Models.Views;
 
 namespace backend.Controllers.V1
 {
@@ -12,18 +13,19 @@ namespace backend.Controllers.V1
     {
         #region Variables & Constructor
         private readonly IAccountRepository _accountRepository;
+
         public AccountsController(IAccountRepository accountRepository)
         {
             _accountRepository = accountRepository;
         }
         #endregion
 
-        #region Get All Accounts
+        #region Get Accounts List
         /// <summary>
-        /// Retrieves a paginated list of accounts based on the provided search criteria.
+        /// Retrieves a paginated list of accounts based on the provided search, filter, and sorting criteria.
         /// </summary>
-        /// <param name="request"></param>
-        /// <returns></returns>
+        /// <param name="request">The search parameters used to filter, sort, and paginate accounts.</param>
+        /// <returns>A paged result of account records matching the search criteria.</returns>
         [HttpPost("list")]
         [ProducesResponseType(typeof(PagedResult<VwAccountsList>), StatusCodes.Status200OK)]
         public async Task<IActionResult> List([FromBody] SearchRequestModel request)
@@ -33,14 +35,15 @@ namespace backend.Controllers.V1
         }
         #endregion
 
-        #region Get Account By ID
+        #region Add Account
         /// <summary>
-        /// Retrieves the details of a specific account by its unique identifier.
+        /// Creates a new account based on the specified request data.
         /// </summary>
         /// <param name="request">The account request model containing the details of the account to be added.</param>
-        /// <returns>An IActionResult indicating the result of the operation. Returns BadRequest if the request is invalid or the account could not be added, and Ok with the added account details if successful.</returns>
+        /// <returns>An IActionResult indicating the result of the operation. Returns BadRequest if the request is invalid or creation fails, and Ok with the added account details if successful.</returns>
         [HttpPost]
         [ProducesResponseType(typeof(AccountResponseModel), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Post([FromBody] AccountRequestModel request)
         {
             var result = await _accountRepository.AddAccount(request);
@@ -55,9 +58,10 @@ namespace backend.Controllers.V1
         /// </summary>
         /// <param name="accountSID">The unique identifier of the account to update. Cannot be null or empty.</param>
         /// <param name="request">The account data to update, provided in the request body. Must contain valid account information.</param>
-        /// <returns>An IActionResult indicating the outcome of the update operation. Returns Ok with the updated account if
-        /// successful; NotFound if the account does not exist; BadRequest if the request data is invalid.</returns>
+        /// <returns>An IActionResult indicating the outcome of the update operation. Returns Ok with the updated account if successful; NotFound if the account does not exist; BadRequest if the request data is invalid.</returns>
         [HttpPut("{accountSID}")]
+        [ProducesResponseType(typeof(AccountResponseModel), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Put(string accountSID, [FromBody] AccountRequestModel request)
         {
             var result = await _accountRepository.UpdateAccount(accountSID, request);
@@ -71,9 +75,10 @@ namespace backend.Controllers.V1
         /// Deletes the account with the specified identifier.
         /// </summary>
         /// <param name="accountSID">The unique identifier of the account to delete. Cannot be null or empty.</param>
-        /// <returns>An IActionResult indicating the outcome of the delete operation. Returns NotFound if the account does not
-        /// exist; otherwise, returns Ok with a success indicator.</returns>
+        /// <returns>An IActionResult indicating the outcome of the delete operation. Returns NotFound if the account does not exist; otherwise, returns Ok with a success indicator.</returns>
         [HttpDelete("{accountSID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(string accountSID)
         {
             var result = await _accountRepository.DeleteAccount(accountSID);

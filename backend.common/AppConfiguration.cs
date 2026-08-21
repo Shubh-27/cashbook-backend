@@ -1,34 +1,26 @@
-﻿namespace backend.common
+namespace backend.common
 {
-    public static class AppConfiguration
+    public class AppConfiguration
     {
-        #region Configuration properties
-        public static string ValidIssuer { get; private set; } = string.Empty;
-        public static string ValidAudience { get; private set; } = string.Empty;
-        public static string IssuerSigningKeyBytes { get; private set; } = string.Empty;
-        public static string WebHost { get; private set; } = string.Empty;
-        public static string ApiHost { get; private set; } = string.Empty;
-        public static int ExpiryMins { get; private set; } = 600;
-        public static int SuperExpiryMins { get; private set; } = 600;
-        public static int InternalExpiryMins { get; private set; } = 600;
-        public static string SaltKey { get; private set; } = string.Empty;
-        #endregion
+        public ConnectionStrings ConnectionStrings { get; set; } = new();
+        public CorsSettings Cors { get; set; } = new();
+        public bool AutoMigrate { get; set; } = true;
+    }
 
-        #region App Configuration
-        static AppConfiguration()
+    public class ConnectionStrings
+    {
+        public string DefaultConnection { get; set; } = string.Empty;
+    }
+
+    public class CorsSettings
+    {
+        public string AllowedOrigins { get; set; } = "http://localhost:5173,http://localhost:5050,http://127.0.0.1:5173,http://127.0.0.1:5050,null";
+
+        public string[] GetOriginsArray()
         {
-            var configuration = ConfigHelper.GetConfig();
-
-            ValidIssuer = configuration["ValidIssuer"] ?? string.Empty;
-            ValidAudience = configuration["ValidAudience"] ?? string.Empty;
-            IssuerSigningKeyBytes = configuration["IssuerSigningKeyBytes"] ?? string.Empty;
-            WebHost = configuration["WebHost"] ?? string.Empty;
-            ApiHost = configuration["ApiHost"] ?? string.Empty;
-            ExpiryMins = int.TryParse(configuration["ExpiryMins"], out var expiryMins) ? expiryMins : 600;
-            SuperExpiryMins = int.TryParse(configuration["SuperExpiryMins"], out var superExpiryMins) ? superExpiryMins : 600;
-            InternalExpiryMins = int.TryParse(configuration["InternalExpiryMins"], out var internalExpiryMins) ? internalExpiryMins : 600;
-            SaltKey = configuration["saltKey"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(AllowedOrigins))
+                return Array.Empty<string>();
+            return AllowedOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
-        #endregion
     }
 }

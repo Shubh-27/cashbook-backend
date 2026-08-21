@@ -1,0 +1,255 @@
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
+
+namespace backend.common
+{
+    public static class QueryExtensions
+    {
+        public static IQueryable<T> ApplyFilters<T>(this IQueryable<T> query, List<FilterRequestModel>? filters)
+        {
+            if (filters == null || filters.Count == 0)
+                return query;
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            Expression? combinedExpression = null;
+
+            foreach (var filter in filters)
+            {
+                if (string.IsNullOrEmpty(filter.Key) || string.IsNullOrEmpty(filter.Condition))
+                    continue;
+
+                var property = GetPropertyExpression(parameter, filter.Key);
+                if (property == null) continue;
+
+                var expression = BuildFilterExpression(property, filter);
+                if (expression == null) continue;
+
+                if (combinedExpression == null)
+                    combinedExpression = expression;
+                else
+                    combinedExpression = Expression.AndAlso(combinedExpression, expression);
+            }
+
+            if (combinedExpression == null)
+                return query;
+
+            var lambda = Expression.Lambda<Func<T, bool>>(combinedExpression, parameter);
+            return query.Where(lambda);
+        }
+
+        public static IQueryable<T> ApplySorting<T>(this IQueryable<T> query, string? sortBy, string? sortOrder)
+        {
+            if (string.IsNullOrEmpty(sortBy))
+                return query;
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            var property = GetPropertyExpression(parameter, sortBy);
+            if (property == null) return query;
+
+            var lambda = Expression.Lambda(property, parameter);
+            var methodName = (sortOrder?.ToLower() == "desc") ? "OrderByDescending" : "OrderBy";
+
+            var resultExpression = Expression.Call(typeof(Queryable), methodName,
+                new Type[] { typeof(T), property.Type },
+                query.Expression, Expression.Quote(lambda));
+
+            return query.Provider.CreateQuery<T>(resultExpression);
+        }
+
+        public static async Task<PagedResult<T>> ToPagedResultAsync<T>(this IQueryable<T> query, int page, int pageSize)
+        {
+            var totalCount = await query.CountAsync();
+            
+            if (pageSize == -1)
+            {
+                return new PagedResult<T>
+                {
+                    Data = await query.ToListAsync(),
+                    TotalCount = totalCount,
+                    Page = 1,
+                    PageSize = totalCount
+                };
+            }
+
+            var p = page > 0 ? page : 1;
+            var ps = pageSize > 0 ? pageSize : 50;
+
+            var data = await query.Skip((p - 1) * ps).Take(ps).ToListAsync();
+
+            return new PagedResult<T>
+            {
+                Data = data,
+                TotalCount = totalCount,
+                Page = p,
+                PageSize = ps
+            };
+        }
+
+        private static Expression? GetPropertyExpression(Expression parameter, string propertyName)
+        {
+            Expression property = parameter;
+            foreach (var member in propertyName.Split('.'))
+            {
+                var type = property.Type;
+                // First try direct match (PascalCase or IgnoreCase)
+                var propInfo = type.GetProperty(member, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+                
+                // If not found, try matching by JsonPropertyName attribute (for snake_case mapping)
+                if (propInfo == null)
+                {
+                    propInfo = type.GetProperties()
+                        .FirstOrDefault(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name == member);
+                }
+
+                if (propInfo == null) return null;
+                property = Expression.Property(property, propInfo);
+            }
+            return property;
+        }
+
+        private static Expression? BuildFilterExpression(Expression property, FilterRequestModel filter)
+        {
+            var condition = filter.Condition?.ToLower();
+            var type = property.Type;
+            var isString = type == typeof(string);
+
+            switch (condition)
+            {
+                case "equals":
+                    var eqVal = ConvertValue(filter.Value, type);
+                    if (eqVal == null && Nullable.GetUnderlyingType(type) == null && type.IsValueType)
+                        return null;
+                    return Expression.Equal(property, Expression.Constant(eqVal, type));
+
+                case "in":
+                    // filter.Value should be an array or list of strings
+                    if (filter.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var values = new List<object>();
+                        foreach (var item in jsonElement.EnumerateArray())
+                        {
+                            var convertedItem = ConvertValue(item, type);
+                            if (convertedItem != null) values.Add(convertedItem);
+                        }
+
+                        if (values.Count == 0) return null;
+
+                        var containsMethodIn = typeof(Enumerable).GetMethods()
+                            .Where(m => m.Name == "Contains" && m.GetParameters().Length == 2)
+                            .Single()
+                            .MakeGenericMethod(type);
+
+                        // We create a List<T> of the target type to call Contains on
+                        var listType = typeof(List<>).MakeGenericType(type);
+                        var list = Activator.CreateInstance(listType);
+                        var addMethod = listType.GetMethod("Add");
+                        foreach (var val in values)
+                        {
+                            addMethod!.Invoke(list, new[] { val });
+                        }
+
+                        return Expression.Call(null, containsMethodIn, Expression.Constant(list), property);
+                    }
+                    return null;
+
+                case "contains":
+                    if (!isString) return null;
+                    var containsMethod = typeof(string).GetMethod("Contains", new[] { typeof(string) });
+                    if (containsMethod == null) return null;
+                    return Expression.Call(property, containsMethod, Expression.Constant(filter.Value?.ToString()));
+
+                case "greater_than":
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        return Expression.GreaterThan(Expression.Call(property, compareMethod, Expression.Constant(filter.Value?.ToString())), Expression.Constant(0));
+                    }
+                    var gtVal = ConvertValue(filter.Value, type);
+                    if (gtVal == null) return null;
+                    return Expression.GreaterThan(property, Expression.Constant(gtVal, type));
+
+                case "less_than":
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        return Expression.LessThan(Expression.Call(property, compareMethod, Expression.Constant(filter.Value?.ToString())), Expression.Constant(0));
+                    }
+                    var ltVal = ConvertValue(filter.Value, type);
+                    if (ltVal == null) return null;
+                    return Expression.LessThan(property, Expression.Constant(ltVal, type));
+
+                case "between":
+                    var fromVal = ConvertValue(filter.From, type);
+                    var toVal = ConvertValue(filter.To, type);
+                    if (fromVal == null || toVal == null) return null;
+
+                    if (isString)
+                    {
+                        var compareMethod = typeof(string).GetMethod("CompareTo", new[] { typeof(string) });
+                        if (compareMethod == null) return null;
+                        var leftStr = Expression.GreaterThanOrEqual(Expression.Call(property, compareMethod, Expression.Constant(fromVal.ToString())), Expression.Constant(0));
+                        var rightStr = Expression.LessThanOrEqual(Expression.Call(property, compareMethod, Expression.Constant(toVal.ToString())), Expression.Constant(0));
+                        return Expression.AndAlso(leftStr, rightStr);
+                    }
+
+                    var left = Expression.GreaterThanOrEqual(property, Expression.Constant(fromVal, type));
+                    var right = Expression.LessThanOrEqual(property, Expression.Constant(toVal, type));
+                    return Expression.AndAlso(left, right);
+
+                default:
+                    return null;
+            }
+        }
+
+        private static object? ConvertValue(object? value, Type targetType)
+        {
+            if (value == null) return null;
+
+            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            if (value is JsonElement element)
+            {
+                switch (element.ValueKind)
+                {
+                    case JsonValueKind.String:
+                        if (underlyingType == typeof(DateTime))
+                            return element.GetDateTime();
+                        if (underlyingType == typeof(string))
+                            return element.GetString();
+                        if (underlyingType == typeof(int) && int.TryParse(element.GetString(), out int intVal))
+                            return intVal;
+                        if (underlyingType == typeof(double) && double.TryParse(element.GetString(), out double dblVal))
+                            return dblVal;
+                        return element.GetString();
+                    case JsonValueKind.Number:
+                        if (underlyingType == typeof(int))
+                            return element.GetInt32();
+                        if (underlyingType == typeof(double))
+                            return element.GetDouble();
+                        if (underlyingType == typeof(long))
+                            return element.GetInt64();
+                        if (underlyingType == typeof(decimal))
+                            return element.GetDecimal();
+                        break;
+                    case JsonValueKind.True:
+                    case JsonValueKind.False:
+                        return element.GetBoolean();
+                }
+            }
+
+            try
+            {
+                return Convert.ChangeType(value.ToString(), underlyingType);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+}

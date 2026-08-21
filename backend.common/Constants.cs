@@ -15,12 +15,5 @@ namespace backend.common
             public const string DeleteString = "Deleted";
             public const byte Delete = 3;
         }
-        public static class UserType
-        {
-            public const string AdministratorString = "Administrator";
-            public const byte Administrator = 0;
-            public const string AdviserString = "Adviser";
-            public const byte Adviser = 2;
-        }
     }
 }

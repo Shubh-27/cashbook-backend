@@ -1,4 +1,4 @@
-using backend.model.RequestModel;
+using backend.model.RequestModels;
 using FluentValidation;
 
 namespace backend.Validators
@@ -8,7 +8,8 @@ namespace backend.Validators
         public DescriptionRequestValidator()
         {
             RuleFor(x => x.DescriptionName)
-                .NotEmpty().WithMessage("Description name is required");
+                .NotEmpty().WithMessage("Description name is required")
+                .MaximumLength(100).WithMessage("Description name cannot exceed 100 characters");
         }
     }
 }

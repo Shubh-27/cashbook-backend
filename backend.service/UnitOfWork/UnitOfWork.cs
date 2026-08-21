@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace backend.service.UnitOfWork
@@ -16,7 +16,9 @@ namespace backend.service.UnitOfWork
         Task BeginTransactionAsync();
         Task SaveAsync();
         Task CommitTransactionAsync();
+        Task RollbackTransactionAsync();
         void ClearContext();
+        void ClearChangeTracker();
         IDbContextTransaction DbContextTransaction { get; set; }
     }
 
@@ -86,6 +88,23 @@ namespace backend.service.UnitOfWork
             }
         }
 
+        public async Task RollbackTransactionAsync()
+        {
+            if (DbContextTransaction != null)
+            {
+                try
+                {
+                    await DbContextTransaction.RollbackAsync();
+                }
+                finally
+                {
+                    await DbContextTransaction.DisposeAsync();
+                    DbContextTransaction = null;
+                    Context.ChangeTracker.Clear();
+                }
+            }
+        }
+
         public async Task<int> CommitAsync()
         {
             var status = await Context.SaveChangesAsync();
@@ -113,9 +132,6 @@ namespace backend.service.UnitOfWork
                     await DbContextTransaction.RollbackAsync();
 
                 throw;
-                //throw new HttpStatusCodeException(
-                //    StatusCodes.Status400BadRequest,
-                //    "Error in query: " + ex.Message);
             }
             finally
             {
@@ -127,11 +143,19 @@ namespace backend.service.UnitOfWork
             }
         }
 
+        public void ClearChangeTracker()
+        {
+            Context.ChangeTracker.Clear();
+        }
+
         public void ClearContext()
         {
             Context.ChangeTracker.Clear();
             if (DbContextTransaction != null)
+            {
+                DbContextTransaction.Dispose();
                 DbContextTransaction = null;
+            }
         }
 
         public void Dispose()
