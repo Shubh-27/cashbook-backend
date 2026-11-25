@@ -23,6 +23,10 @@ public partial class Transaction
 
     public int? AccountID { get; set; }
 
+    public int? ImportBatchID { get; set; }
+
+    public string? RowHash { get; set; }
+
     public string? CreatedDateTime { get; set; }
 
     public int? CreatedByUserID { get; set; }

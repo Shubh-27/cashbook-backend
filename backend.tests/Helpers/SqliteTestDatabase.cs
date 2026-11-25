@@ -9,7 +9,7 @@ namespace backend.tests.Helpers
     public class SqliteTestDatabase : IAsyncDisposable, IDisposable
     {
         public string FilePath { get; }
-        public string ConnectionString => $"Data Source={FilePath};Pooling=False;Default Timeout=30;";
+        public string ConnectionString => $"Data Source={FilePath};Pooling=False;Default Timeout=30;Foreign Keys=True;";
 
         private SqliteTestDatabase(string filePath)
         {

@@ -17,10 +17,16 @@ namespace backend.Extensions
             services.AddScoped<IAccountRepository, AccountRepository>();
             services.AddScoped<IDescriptionRepository, DescriptionRepository>();
             services.AddScoped<ITransactionRepository, TransactionRepository>();
+            services.AddScoped<IImportProfileRepository, ImportProfileRepository>();
 
             // Domain Services
             services.AddScoped<IDatabaseService, DatabaseService>();
             services.AddScoped<IExportService, ExportService>();
+            services.AddScoped<IStatementImportService, StatementImportService>();
+            services.AddScoped<IStatementGridParser, StatementGridParser>();
+            services.AddScoped<IStatementMaskingService, StatementMaskingService>();
+            services.AddScoped<IImportProfilePreviewService, ImportProfilePreviewService>();
+            services.AddScoped<IImportProfileRuleValidator, ImportProfileRuleValidator>();
 
             return services;
         }

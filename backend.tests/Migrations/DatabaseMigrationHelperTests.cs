@@ -151,6 +151,33 @@ namespace backend.tests.Migrations
             }
         }
 
+        [Fact]
+        public async Task ImportProfileVersionMigration_EnforcesImmutabilityAndAllowsReimportAfterUndo()
+        {
+            await using var context = _testDb.CreateContext();
+            await DatabaseMigrationHelper.MigrateDatabaseSafelyAsync(context);
+            var account = new Account { AccountSID = Guid.NewGuid().ToString(), AccountName = "Test account", Status = 1 };
+            var profile = new ImportProfile { ImportProfileSID = Guid.NewGuid().ToString(), Name = "Test profile", FileType = "CSV", HeaderRow = 1, HeaderSignature = "date|description", ColumnMappingJson = "{}", Status = 1 };
+            context.AddRange(account, profile);
+            await context.SaveChangesAsync();
+            var version = new ImportProfileVersion { ProfileID = profile.ImportProfileID, VersionNumber = 1, FileType = "CSV", HeaderSignature = "date|description", HeaderRowIndexHint = 1, HeaderCellCount = 2, SampleJson = "{}", CreatedAt = DateTime.UtcNow.ToString("O") };
+            context.ImportProfileVersions.Add(version);
+            await context.SaveChangesAsync();
+
+            var connection = context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            await using var update = connection.CreateCommand();
+            update.CommandText = "UPDATE ImportProfileVersions SET FileType = 'XLS' WHERE ImportProfileVersionID = $id;";
+            var parameter = update.CreateParameter(); parameter.ParameterName = "$id"; parameter.Value = version.ImportProfileVersionID; update.Parameters.Add(parameter);
+            await Assert.ThrowsAnyAsync<Exception>(() => update.ExecuteNonQueryAsync());
+
+            context.ImportBatches.Add(new ImportBatch { ImportBatchSID = Guid.NewGuid().ToString(), AccountID = account.AccountID, SourceFileName = "one.csv", FileType = "csv", FileHash = "hash", TotalRows = 1, Status = 1 });
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlRawAsync("UPDATE ImportBatches SET UndoneDateTime = '2026-01-01T00:00:00.0000000Z' WHERE FileHash = 'hash';");
+            context.ImportBatches.Add(new ImportBatch { ImportBatchSID = Guid.NewGuid().ToString(), AccountID = account.AccountID, SourceFileName = "two.csv", FileType = "csv", FileHash = "hash", TotalRows = 1, Status = 1 });
+            await context.SaveChangesAsync();
+        }
+
         private static async Task<List<string>> GetSchemaObjectsAsync(AppDbContext context, string objectType)
         {
             var result = new List<string>();

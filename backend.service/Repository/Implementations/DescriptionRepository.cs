@@ -5,6 +5,7 @@ using backend.model.RequestModels;
 using backend.model.ResponseModels;
 using backend.service.Repository.Interfaces;
 using backend.service.UnitOfWork;
+using Microsoft.EntityFrameworkCore;
 using static backend.common.Constants;
 
 namespace backend.service.Repository.Implementations
@@ -46,10 +47,17 @@ namespace backend.service.Repository.Implementations
 
         public async Task<List<DescriptionResponseModel>> GetDescriptions()
         {
-            var data = await _unitOfWork.GetRepository<Description>()
-                .GetAllAsync(x => x.Status == StatusType.Active);
-            
-            return data.Select(MapToResponse).ToList();
+            return await _unitOfWork.GetRepository<Description>()
+                .AsQueryable(enableTracking: false)
+                .Where(x => x.Status == StatusType.Active)
+                .Select(description => new DescriptionResponseModel
+                {
+                    DescriptionSID = description.DescriptionSID,
+                    DescriptionName = description.DescriptionName,
+                    LastModifiedDateTime = description.LastModifiedDateTime,
+                    Status = description.Status
+                })
+                .ToListAsync();
         }
         #endregion
 

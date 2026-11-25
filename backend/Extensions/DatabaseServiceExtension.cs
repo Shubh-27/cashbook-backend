@@ -23,7 +23,7 @@ namespace backend.Extensions
                 {
                     Directory.CreateDirectory(dbFolder);
                 }
-                return $"Data Source={customDbPath};Cache=Shared;Pooling=True;";
+                return $"Data Source={customDbPath};Cache=Shared;Pooling=True;Foreign Keys=True;Default Timeout=5;";
             }
 
             if (!isDevelopment)
@@ -32,7 +32,7 @@ namespace backend.Extensions
                 var dbFolder = Path.Combine(appDataPath, "BankApp");
                 Directory.CreateDirectory(dbFolder);
                 var dbFilePath = Path.Combine(dbFolder, "cashbook.db");
-                return $"Data Source={dbFilePath};Cache=Shared;Pooling=True;";
+                return $"Data Source={dbFilePath};Cache=Shared;Pooling=True;Foreign Keys=True;Default Timeout=5;";
             }
 
             var connectionString = configuration.GetConnectionString("DefaultConnection") 
@@ -43,7 +43,9 @@ namespace backend.Extensions
                 connectionString = "Data Source=cashbook.db;Cache=Shared;Pooling=True;";
             }
 
-            return connectionString;
+            var suffix = connectionString.Contains("Foreign Keys", StringComparison.OrdinalIgnoreCase) ? string.Empty : ";Foreign Keys=True";
+            if (!connectionString.Contains("Default Timeout", StringComparison.OrdinalIgnoreCase)) suffix += ";Default Timeout=5";
+            return $"{connectionString.TrimEnd(';')}{suffix};";
         }
 
         /// <summary>
@@ -56,9 +58,10 @@ namespace backend.Extensions
 
             services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseSqlite(connectionString);
+                options.UseSqlite(connectionString).AddInterceptors(new SqlitePragmaInterceptor());
                 options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-                options.EnableSensitiveDataLogging(isDevelopment);
+                // Bank statement samples and import metadata can contain personal data. Keep
+                // EF Core parameter/value logging disabled in every environment.
             }, ServiceLifetime.Scoped);
 
             return services;
@@ -71,8 +74,8 @@ namespace backend.Extensions
         /// </summary>
         public static void ApplyMigrations(WebApplication app)
         {
-            using var mscope = app.Services.CreateScope();
-            var config = mscope.ServiceProvider.GetRequiredService<IConfiguration>();
+            using var scope = app.Services.CreateScope();
+            var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
             var autoMigrateStr = config["AutoMigrate"];
             bool autoMigrate = true;
             if (!string.IsNullOrEmpty(autoMigrateStr))
@@ -81,7 +84,6 @@ namespace backend.Extensions
             }
             if (!autoMigrate) return;
 
-            using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<AppDbContext>>();
 

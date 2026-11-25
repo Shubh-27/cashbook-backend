@@ -2,6 +2,7 @@ using backend.common;
 using backend.Extensions;
 using backend.Middleware;
 using backend.model.DbModels;
+using System.Text;
 
 namespace backend
 {
@@ -9,6 +10,7 @@ namespace backend
     {
         public static void Main(string[] args)
         {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             var builder = WebApplication.CreateBuilder(args);
 
             // Configure AppConfiguration

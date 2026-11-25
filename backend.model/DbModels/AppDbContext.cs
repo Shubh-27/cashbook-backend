@@ -14,6 +14,9 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<Description> Descriptions { get; set; }
     public virtual DbSet<Transaction> Transactions { get; set; }
     public virtual DbSet<User> Users { get; set; }
+    public virtual DbSet<ImportProfile> ImportProfiles { get; set; }
+    public virtual DbSet<ImportBatch> ImportBatches { get; set; }
+    public virtual DbSet<ImportProfileVersion> ImportProfileVersions { get; set; }
 
     public virtual DbSet<VwTransactionsList> VwTransactionsList { get; set; }
     public virtual DbSet<VwAccountsList> VwAccountsList { get; set; }
@@ -71,6 +74,9 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.Status, "IX_Transactions_Status");
 
+            entity.HasIndex(e => e.ImportBatchID, "IX_Transactions_ImportBatchID");
+            entity.HasIndex(e => new { e.AccountID, e.RowHash }, "IX_Transactions_AccountID_RowHash");
+
             entity.HasIndex(e => new { e.Status, e.TransactionDate }, "IX_Transactions_Status_TransactionDate");
 
             entity.HasIndex(e => new { e.AccountID, e.Status }, "IX_Transactions_AccountID_Status");
@@ -85,8 +91,36 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Status).HasDefaultValue(1);
 
             entity.HasOne(d => d.Account).WithMany(p => p.Transactions).HasForeignKey(d => d.AccountID);
-
             entity.HasOne(d => d.Description).WithMany(p => p.Transactions).HasForeignKey(d => d.DescriptionID);
+        });
+
+        modelBuilder.Entity<ImportProfile>(entity =>
+        {
+            entity.HasKey(e => e.ImportProfileID);
+            entity.HasIndex(e => e.ImportProfileSID).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.Name });
+            entity.Property(e => e.CreatedDateTime).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.LastModifiedDateTime).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.Status).HasDefaultValue(1);
+        });
+
+        modelBuilder.Entity<ImportProfileVersion>(entity =>
+        {
+            entity.ToTable("ImportProfileVersions");
+            entity.HasKey(e => e.ImportProfileVersionID);
+            entity.HasIndex(e => new { e.ProfileID, e.VersionNumber }).IsUnique();
+            entity.HasOne(e => e.Profile).WithMany(e => e.Versions).HasForeignKey(e => e.ProfileID).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ImportBatch>(entity =>
+        {
+            entity.HasKey(e => e.ImportBatchID);
+            entity.HasIndex(e => e.ImportBatchSID).IsUnique();
+            entity.HasIndex(e => new { e.AccountID, e.CreatedDateTime });
+            entity.Property(e => e.CreatedDateTime).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.Status).HasDefaultValue(1);
+            entity.HasOne(e => e.Account).WithMany().HasForeignKey(e => e.AccountID);
+            entity.HasOne(e => e.ImportProfile).WithMany(e => e.ImportBatches).HasForeignKey(e => e.ImportProfileID).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<User>(entity =>
