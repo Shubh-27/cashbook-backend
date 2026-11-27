@@ -365,6 +365,8 @@ FodyWeavers.xsd
 # App settings
 appsettings.json
 appsettings.*.json
+# Base config is tracked; it must contain no secrets. Environment-specific files stay ignored.
+!appsettings.json
 AppSetting.json
 AppSetting.*.json
 *.db
