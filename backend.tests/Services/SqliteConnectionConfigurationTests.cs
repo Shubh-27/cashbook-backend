@@ -1,5 +1,6 @@
 using backend.Extensions;
-using backend.model.DbModels;
+using backend.model.TenantDB;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,7 @@ public class SqliteConnectionConfigurationTests
         }
         finally
         {
+            SqliteConnection.ClearAllPools();
             foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
             {
                 var temporaryFile = path + suffix;
@@ -54,10 +56,12 @@ public class SqliteConnectionConfigurationTests
                 await using var timeout = connection.CreateCommand(); timeout.CommandText = "PRAGMA busy_timeout;"; Assert.True(Convert.ToInt32(await timeout.ExecuteScalarAsync()) >= 5000);
                 await using var journal = connection.CreateCommand(); journal.CommandText = "PRAGMA journal_mode;"; Assert.Equal("wal", Convert.ToString(await journal.ExecuteScalarAsync())?.ToLowerInvariant());
                 await db.Database.CloseConnectionAsync();
+                await connection.DisposeAsync();
             }
         }
         finally
         {
+            SqliteConnection.ClearAllPools();
             foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
             {
                 var temporaryFile = path + suffix;

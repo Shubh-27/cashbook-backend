@@ -42,9 +42,9 @@ backend/
 │   ├── UnitOfWork/           # Unit of Work & generic Repository pattern implementation
 │   └── Helpers/              # Excel import/export utilities powered by ClosedXML
 ├── backend.model/            # Domain & Data Layer
-│   ├── DbModels/             # EF Core entities (Account, Transaction, Description, etc.) and AppDbContext
-│   ├── RequestModels/        # Incoming API request DTOs & query filters
-│   ├── ResponseModels/       # Outgoing standardized API response DTOs
+│   ├── TenantDB/             # EF Core entities (Account, Transaction, Description, etc.) and AppDbContext
+│   ├── RequestModel/         # Incoming API request DTOs & query filters
+│   ├── ResponseModel/        # Outgoing standardized API response DTOs
 │   └── Migrations/           # EF Core code-first migration snapshots
 ├── backend.common/           # Cross-Cutting Concerns
 │   ├── AppConfiguration.cs   # Strongly-typed configuration bindings

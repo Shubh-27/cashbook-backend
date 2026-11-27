@@ -1,4 +1,4 @@
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 

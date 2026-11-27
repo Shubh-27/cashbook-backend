@@ -1,5 +1,5 @@
 using backend.service.Repository.Implementations;
-using backend.service.Repository.Interfaces;
+using backend.service.Repository.Interface;
 using backend.service.Services.Implementations;
 using backend.service.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,10 +23,12 @@ namespace backend.Extensions
             services.AddScoped<IDatabaseService, DatabaseService>();
             services.AddScoped<IExportService, ExportService>();
             services.AddScoped<IStatementImportService, StatementImportService>();
-            services.AddScoped<IStatementGridParser, StatementGridParser>();
-            services.AddScoped<IStatementMaskingService, StatementMaskingService>();
-            services.AddScoped<IImportProfilePreviewService, ImportProfilePreviewService>();
-            services.AddScoped<IImportProfileRuleValidator, ImportProfileRuleValidator>();
+            services.AddScoped<IImportProfileService, ImportProfileService>();
+            services.AddScoped<ITransactionService, TransactionService>();
+            services.AddSingleton<IStatementGridParser, StatementGridParser>();
+            services.AddSingleton<IStatementMaskingService, StatementMaskingService>();
+            services.AddSingleton<IImportProfilePreviewService, ImportProfilePreviewService>();
+            services.AddSingleton<IImportProfileRuleValidator, ImportProfileRuleValidator>();
 
             return services;
         }

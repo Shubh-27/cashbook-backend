@@ -1,6 +1,6 @@
 using System.Globalization;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
 using backend.service.Services.Interfaces;
 
 namespace backend.service.Services.Implementations;
@@ -28,7 +28,6 @@ public sealed class ImportProfileRuleValidator : IImportProfileRuleValidator
         var problems = new List<ImportProfileRuleProblem>();
         if (string.IsNullOrWhiteSpace(rule.Name)) problems.Add(new("name_required", "Enter a profile name."));
         if (!rule.Date.HasValue) problems.Add(new("date_required", "Map the Date column."));
-        if (!rule.Description.HasValue) problems.Add(new("description_required", "Map the Description column."));
         var hasAmount = rule.Amount.HasValue; var hasSplit = rule.Debit.HasValue || rule.Credit.HasValue;
         if (hasAmount && hasSplit) problems.Add(new("amount_mapping_conflict", "Use either Amount or Debit/Credit columns, not both."));
         if (!hasAmount && !hasSplit) problems.Add(new("amount_mapping_required", "Map an Amount, Debit, or Credit column."));

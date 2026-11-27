@@ -1,4 +1,4 @@
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging;
@@ -164,7 +164,7 @@ namespace backend.service.Helpers
             }
 
             var productVersion = typeof(AppDbContext).Assembly.GetName().Version?.ToString() ?? "10.0.5";
-            const string initialMigration = "20260315212014_InitialCreate";
+            const string initialMigration = backend.common.Constants.InitialMigrationId;
 
             using var insertCmd = connection.CreateCommand();
             insertCmd.CommandText = $"""
@@ -197,7 +197,7 @@ namespace backend.service.Helpers
             }
 
             var productVersion = typeof(AppDbContext).Assembly.GetName().Version?.ToString() ?? "10.0.5";
-            const string initialMigration = "20260315212014_InitialCreate";
+            const string initialMigration = backend.common.Constants.InitialMigrationId;
 
             using var insertCmd = connection.CreateCommand();
             insertCmd.CommandText = $"""

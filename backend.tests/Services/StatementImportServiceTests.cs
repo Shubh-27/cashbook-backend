@@ -1,6 +1,6 @@
 using backend.common;
-using backend.model.DbModels;
-using backend.model.RequestModels;
+using backend.model.TenantDB;
+using backend.model.RequestModel;
 using backend.service.Repository.Implementations;
 using backend.service.Services.Implementations;
 using backend.service.UnitOfWork;
@@ -26,7 +26,11 @@ public class StatementImportServiceTests : IAsyncDisposable
     public async ValueTask DisposeAsync() => await _database.DisposeAsync();
 
     private static StatementImportService CreateService(AppDbContext context) => new(new UnitOfWork<AppDbContext>(context));
-    private static ImportProfileRepository CreateProfileRepository(AppDbContext context) => new(new UnitOfWork<AppDbContext>(context), new StatementGridParser(), new StatementMaskingService(), new ImportProfileRuleValidator());
+    private static ImportProfileService CreateProfileRepository(AppDbContext context)
+    {
+        var uow = new UnitOfWork<AppDbContext>(context);
+        return new ImportProfileService(new ImportProfileRepository(uow), uow, new StatementGridParser(), new StatementMaskingService(), new ImportProfileRuleValidator());
+    }
 
     [Fact]
     public async Task CommitAsync_WhenNoRowsSelected_RejectsWithoutCreatingBatch()

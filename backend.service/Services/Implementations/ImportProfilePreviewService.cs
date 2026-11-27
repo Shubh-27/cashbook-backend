@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
 using backend.service.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
 

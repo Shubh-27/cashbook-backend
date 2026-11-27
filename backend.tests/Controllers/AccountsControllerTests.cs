@@ -16,12 +16,13 @@
  * ====================================================================================================
  */
 
+using backend.common.Models;
 using backend.common;
 using backend.Controllers.V1;
-using backend.model.DbModels.Views;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
-using backend.service.Repository.Interfaces;
+using backend.model.TenantDB.Views;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
+using backend.service.Repository.Interface;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
@@ -37,7 +38,7 @@ namespace backend.tests.Controllers
          * CONCEPT: MOCKING WITH MOQ (Test Doubles)
          * ------------------------------------------------------------------------------------------------
          * A "Mock" is a programmable fake object. We tell Moq: "When the controller calls AddAccount(),
-         * do NOT touch a database — just return this predefined AccountResponseModel."
+         * do NOT touch a database Ã¢â‚¬â€ just return this predefined AccountResponseModel."
          * This isolates the controller logic from data layer bugs.
          */
         private readonly Mock<IAccountRepository> _mockRepo;
@@ -69,7 +70,7 @@ namespace backend.tests.Controllers
                 }
             };
 
-            _mockRepo.Setup(r => r.Search(It.IsAny<SearchRequestModel>()))
+            _mockRepo.Setup(r => r.Search(It.IsAny<SearchRequestModel>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync(expectedResult);
 
             var request = new SearchRequestModel { Page = 1, PageSize = 10 };
@@ -97,7 +98,7 @@ namespace backend.tests.Controllers
             var newAccountRequest = new AccountRequestModel { AccountName = "Savings Account", BankName = "Chase" };
             var createdResponse = new AccountResponseModel { AccountSID = "acc-new", AccountName = "Savings Account", BankName = "Chase" };
 
-            _mockRepo.Setup(r => r.AddAccount(newAccountRequest, It.IsAny<int?>()))
+            _mockRepo.Setup(r => r.AddAccount(newAccountRequest, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync(createdResponse);
 
             // Act
@@ -121,7 +122,7 @@ namespace backend.tests.Controllers
         {
             // Arrange: Configure mock to return null
             var request = new AccountRequestModel { AccountName = "Invalid Account" };
-            _mockRepo.Setup(r => r.AddAccount(request, It.IsAny<int?>()))
+            _mockRepo.Setup(r => r.AddAccount(request, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync((AccountResponseModel?)null);
 
             // Act
@@ -144,7 +145,7 @@ namespace backend.tests.Controllers
             var updateRequest = new AccountRequestModel { AccountName = "Renamed Account" };
             var updatedResponse = new AccountResponseModel { AccountSID = "acc-1", AccountName = "Renamed Account" };
 
-            _mockRepo.Setup(r => r.UpdateAccount("acc-1", updateRequest, It.IsAny<int?>()))
+            _mockRepo.Setup(r => r.UpdateAccount("acc-1", updateRequest, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync(updatedResponse);
 
             // Act
@@ -166,7 +167,7 @@ namespace backend.tests.Controllers
         {
             // Arrange: Mock returns null to simulate account not found
             var updateRequest = new AccountRequestModel { AccountName = "Any Name" };
-            _mockRepo.Setup(r => r.UpdateAccount("unknown-id", updateRequest, It.IsAny<int?>()))
+            _mockRepo.Setup(r => r.UpdateAccount("unknown-id", updateRequest, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync((AccountResponseModel?)null);
 
             // Act
@@ -185,7 +186,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenAccountExists_ReturnsOkWithSuccessTrue()
         {
             // Arrange
-            _mockRepo.Setup(r => r.DeleteAccount("acc-to-delete"))
+            _mockRepo.Setup(r => r.DeleteAccount("acc-to-delete", It.IsAny<CancellationToken>()))
                      .ReturnsAsync(true);
 
             // Act
@@ -205,7 +206,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenAccountNotFound_ReturnsNotFound()
         {
             // Arrange
-            _mockRepo.Setup(r => r.DeleteAccount("unknown-acc"))
+            _mockRepo.Setup(r => r.DeleteAccount("unknown-acc", It.IsAny<CancellationToken>()))
                      .ReturnsAsync(false);
 
             // Act

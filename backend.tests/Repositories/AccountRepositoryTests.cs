@@ -15,9 +15,10 @@
  * ====================================================================================================
  */
 
+using backend.common.Models;
 using backend.common;
-using backend.model.DbModels;
-using backend.model.RequestModels;
+using backend.model.TenantDB;
+using backend.model.RequestModel;
 using backend.service.Repository.Implementations;
 using backend.tests.Helpers;
 using Microsoft.EntityFrameworkCore;

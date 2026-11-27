@@ -13,10 +13,12 @@
  * ====================================================================================================
  */
 
+using backend.common.Models;
 using backend.common;
-using backend.model.DbModels;
-using backend.model.RequestModels;
+using backend.model.TenantDB;
+using backend.model.RequestModel;
 using backend.service.Repository.Implementations;
+using backend.service.Services.Implementations;
 using backend.service.UnitOfWork;
 using backend.tests.Helpers;
 using Microsoft.EntityFrameworkCore;
@@ -89,14 +91,14 @@ namespace backend.tests.Repositories
             var task1 = Task.Run(async () =>
             {
                 using var uow = _testDb.CreateUnitOfWork();
-                var repo = new TransactionRepository(uow);
+                var repo = new TransactionService(new TransactionRepository(uow));
                 return await repo.AddTransaction(req1);
             });
 
             var task2 = Task.Run(async () =>
             {
                 using var uow = _testDb.CreateUnitOfWork();
-                var repo = new TransactionRepository(uow);
+                var repo = new TransactionService(new TransactionRepository(uow));
                 return await repo.AddTransaction(req2);
             });
 
@@ -158,7 +160,7 @@ namespace backend.tests.Repositories
             };
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repo = new TransactionRepository(uow);
+            var repo = new TransactionService(new TransactionRepository(uow));
 
             // Act & Assert: AddTransaction must throw an exception
             await Assert.ThrowsAnyAsync<Exception>(() => repo.AddTransaction(invalidRequest));
@@ -199,7 +201,7 @@ namespace backend.tests.Repositories
             }
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             var request = new TransactionRequestModel
             {
@@ -239,7 +241,7 @@ namespace backend.tests.Repositories
         {
             // Arrange
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             var request = new TransactionRequestModel
             {
@@ -287,7 +289,7 @@ namespace backend.tests.Repositories
             }
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             var updateRequest = new TransactionRequestModel
             {
@@ -343,7 +345,7 @@ namespace backend.tests.Repositories
             }
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             // Act: Delete transaction matching accountSID
             bool result = await repository.DeleteTransaction(transactionSid, accountSid);
@@ -390,7 +392,7 @@ namespace backend.tests.Repositories
             }
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             // Act: Attempt delete with wrong account SID
             bool result = await repository.DeleteTransaction(transactionSid, wrongAccountSid);
@@ -448,7 +450,7 @@ namespace backend.tests.Repositories
             }
 
             using var uow = _testDb.CreateUnitOfWork();
-            var repository = new TransactionRepository(uow);
+            var repository = new TransactionService(new TransactionRepository(uow));
 
             var searchRequest = new SearchRequestModel
             {

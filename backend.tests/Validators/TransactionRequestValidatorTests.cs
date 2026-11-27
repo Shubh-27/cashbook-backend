@@ -1,4 +1,4 @@
-using backend.model.RequestModels;
+using backend.model.RequestModel;
 using backend.Validators;
 using FluentValidation.TestHelper;
 using Xunit;

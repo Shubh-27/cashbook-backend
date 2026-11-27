@@ -1,9 +1,12 @@
+using backend.common.Models;
 using backend.common;
-using backend.model.DbModels;
-using backend.model.DbModels.Views;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
-using backend.service.Repository.Interfaces;
+using backend.model.Extensions;
+using backend.model.TenantDB;
+using backend.model.TenantDB.Views;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
+using backend.service.Helpers;
+using backend.service.Repository.Interface;
 using backend.service.UnitOfWork;
 using static backend.common.Constants;
 
@@ -21,7 +24,7 @@ namespace backend.service.Repository.Implementations
         #endregion
 
         #region Search
-        public async Task<PagedResult<VwAccountsList>> Search(SearchRequestModel request)
+        public async Task<PagedResult<VwAccountsList>> Search(SearchRequestModel request, CancellationToken cancellationToken = default)
         {
             var query = _unitOfWork.GetRepository<VwAccountsList>().AsQueryable(enableTracking: false);
 
@@ -42,14 +45,14 @@ namespace backend.service.Repository.Implementations
             query = query.ApplySorting(request.SortBy, request.SortOrder);
 
             // Generic Pagination
-            var result = await query.ToPagedResultAsync(request.Page, request.PageSize);
+            var result = await query.ToPagedResultAsync(request.Page, request.PageSize, cancellationToken);
 
             return result;
         }
         #endregion
 
         #region Add Account
-        public async Task<AccountResponseModel?> AddAccount(AccountRequestModel request, int? userId = null)
+        public async Task<AccountResponseModel?> AddAccount(AccountRequestModel request, int? userId = null, CancellationToken cancellationToken = default)
         {
             var newAccount = new Account
             {
@@ -64,17 +67,17 @@ namespace backend.service.Repository.Implementations
                 Status = StatusType.Active
             };
 
-            var added = await _unitOfWork.GetRepository<Account>().InsertAsync(newAccount);
-            await _unitOfWork.SaveAsync();
+            var added = await _unitOfWork.GetRepository<Account>().InsertAsync(newAccount, cancellationToken);
+            await _unitOfWork.SaveAsync(cancellationToken);
 
-            return added.Entity != null ? MapToResponse(added.Entity) : null;
+            return added.Entity != null ? added.Entity.ToResponseModel() : null;
         }
         #endregion
 
         #region Update Account
-        public async Task<AccountResponseModel?> UpdateAccount(string accountSID, AccountRequestModel request, int? userId = null)
+        public async Task<AccountResponseModel?> UpdateAccount(string accountSID, AccountRequestModel request, int? userId = null, CancellationToken cancellationToken = default)
         {
-            var existing = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(x => x.AccountSID == accountSID);
+            var existing = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(x => x.AccountSID == accountSID, cancellationToken: cancellationToken);
             if (existing == null) return null;
 
             existing.AccountName = request.AccountName;
@@ -84,41 +87,24 @@ namespace backend.service.Repository.Implementations
             existing.LastModifiedByUserID = userId;
 
             _unitOfWork.GetRepository<Account>().Update(existing);
-            await _unitOfWork.SaveAsync();
+            await _unitOfWork.SaveAsync(cancellationToken);
 
-            return MapToResponse(existing);
+            return existing.ToResponseModel();
         }
         #endregion
 
         #region Delete Account
-        public async Task<bool> DeleteAccount(string accountSID)
+        public async Task<bool> DeleteAccount(string accountSID, CancellationToken cancellationToken = default)
         {
             var accountRepo = _unitOfWork.GetRepository<Account>();
-            var existing = await accountRepo.SingleOrDefaultAsync(x => x.AccountSID == accountSID);
+            var existing = await accountRepo.SingleOrDefaultAsync(x => x.AccountSID == accountSID, cancellationToken: cancellationToken);
             if (existing == null) return false;
 
             existing.Status = StatusType.Delete;
 
             _unitOfWork.GetRepository<Account>().Update(existing);
-            await _unitOfWork.SaveAsync();
+            await _unitOfWork.SaveAsync(cancellationToken);
             return true;
-        }
-        #endregion
-
-        #region Mapping Helpers
-        private static AccountResponseModel MapToResponse(Account account, double? balance = null)
-        {
-            return new AccountResponseModel
-            {
-                AccountSID = account.AccountSID,
-                AccountName = account.AccountName,
-                AccountNumber = account.AccountNumber,
-                BankName = account.BankName,
-                LastModifiedDateTime = account.LastModifiedDateTime,
-                LastModifiedByUserID = account.LastModifiedByUserID,
-                Status = account.Status,
-                Balance = balance
-            };
         }
         #endregion
     }

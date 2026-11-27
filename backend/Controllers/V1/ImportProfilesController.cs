@@ -1,8 +1,8 @@
+using backend.common.Models;
 using System.Text.Json;
 using backend.common;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
-using backend.service.Repository.Interfaces;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
 using backend.service.Services.Implementations;
 using backend.service.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -17,14 +17,14 @@ namespace backend.Controllers.V1
         #region Variables & Constructor
         private static readonly JsonSerializerOptions RuleJsonOptions = new() { PropertyNameCaseInsensitive = true };
         private readonly IImportProfilePreviewService _previewService;
-        private readonly IImportProfileRepository _importProfileRepository;
+        private readonly IImportProfileService _importProfileService;
 
         public ImportProfilesController(
             IImportProfilePreviewService previewService,
-            IImportProfileRepository importProfileRepository)
+            IImportProfileService importProfileService)
         {
             _previewService = previewService;
-            _importProfileRepository = importProfileRepository;
+            _importProfileService = importProfileService;
         }
         #endregion
 
@@ -39,7 +39,7 @@ namespace backend.Controllers.V1
         [ProducesResponseType(typeof(PagedResult<ImportProfileResponse>), StatusCodes.Status200OK)]
         public async Task<IActionResult> List([FromBody] SearchRequestModel request, CancellationToken cancellationToken)
         {
-            return Ok(await _importProfileRepository.SearchAsync(request, cancellationToken));
+            return Ok(await _importProfileService.SearchAsync(request, cancellationToken));
         }
         #endregion
 
@@ -75,10 +75,10 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Create(IFormFile file, [FromForm] string rule, CancellationToken cancellationToken)
         {
-            var request = JsonSerializer.Deserialize<ImportProfileRuleRequest>(rule, RuleJsonOptions);
+            var request = ParseRule(rule);
             if (request == null) return BadRequest(new { error = "rule_invalid", message = "Provide a valid profile rule." });
 
-            var result = await _importProfileRepository.CreateAsync(file, request, cancellationToken);
+            var result = await _importProfileService.CreateAsync(file, request, cancellationToken);
             return result.Success ? Ok(result) : BadRequest(new { error = "validation_failed", problems = result.Problems });
         }
         #endregion
@@ -98,11 +98,24 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Update(string profileSID, IFormFile? file, [FromForm] string rule, CancellationToken cancellationToken)
         {
-            var request = JsonSerializer.Deserialize<ImportProfileRuleRequest>(rule, RuleJsonOptions);
+            var request = ParseRule(rule);
             if (request == null) return BadRequest(new { error = "rule_invalid", message = "Provide a valid profile rule." });
 
-            var result = await _importProfileRepository.UpdateAsync(profileSID, file, request, cancellationToken);
+            var result = await _importProfileService.UpdateAsync(profileSID, file, request, cancellationToken);
             return result.Success ? Ok(result) : BadRequest(new { error = "validation_failed", problems = result.Problems });
+        }
+
+        private static ImportProfileRuleRequest? ParseRule(string rule)
+        {
+            if (string.IsNullOrWhiteSpace(rule)) return null;
+            try
+            {
+                return JsonSerializer.Deserialize<ImportProfileRuleRequest>(rule, RuleJsonOptions);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
         #endregion
 
@@ -118,7 +131,7 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Get(string profileSID, CancellationToken cancellationToken)
         {
-            var result = await _importProfileRepository.GetAsync(profileSID, null, cancellationToken);
+            var result = await _importProfileService.GetAsync(profileSID, null, cancellationToken);
             return result != null ? Ok(result) : NotFound();
         }
 
@@ -134,7 +147,7 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetVersion(string profileSID, int versionNumber, CancellationToken cancellationToken)
         {
-            var result = await _importProfileRepository.GetAsync(profileSID, versionNumber, cancellationToken);
+            var result = await _importProfileService.GetAsync(profileSID, versionNumber, cancellationToken);
             return result != null ? Ok(result) : NotFound();
         }
         #endregion
@@ -151,7 +164,7 @@ namespace backend.Controllers.V1
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(string profileSID, CancellationToken cancellationToken)
         {
-            var deleted = await _importProfileRepository.DeleteAsync(profileSID, cancellationToken);
+            var deleted = await _importProfileService.DeleteAsync(profileSID, cancellationToken);
             return deleted ? Ok(new { success = true }) : NotFound();
         }
         #endregion

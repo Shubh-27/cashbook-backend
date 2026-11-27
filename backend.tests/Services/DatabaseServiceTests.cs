@@ -16,7 +16,7 @@
 
 using System.Text;
 using backend.common;
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using backend.service.Services.Implementations;
 using backend.tests.Helpers;
 using Microsoft.EntityFrameworkCore;

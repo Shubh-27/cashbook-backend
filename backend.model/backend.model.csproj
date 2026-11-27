@@ -22,5 +22,8 @@
 		</PackageReference>
 	</ItemGroup>
 
+	<ItemGroup>
+		<ProjectReference Include="..\backend.common\backend.common.csproj" />
+	</ItemGroup>
 
 </Project>

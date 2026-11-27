@@ -4,42 +4,44 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using backend.common;
-using backend.model.DbModels;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
+using backend.model.TenantDB;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
+using backend.service.Helpers;
 using backend.service.Repository.Implementations;
-using backend.service.Repository.Interfaces;
+using backend.service.Repository.Interface;
 using backend.service.Services.Interfaces;
 using backend.service.UnitOfWork;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
-namespace backend.service.Services.Implementations;
-
-public partial class StatementImportService : IStatementImportService
+namespace backend.service.Services.Implementations
 {
+    public partial class StatementImportService : IStatementImportService
+    {
+        #region Variables & Constructors
     private const long MaxFileBytes = 10 * 1024 * 1024;
     private const int MaxRows = 25_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStatementMaskingService _maskingService;
     private readonly IStatementGridParser _parser;
-    private readonly IImportProfileRepository _profileRepository;
+    private readonly IImportProfileService _profileService;
 
     public StatementImportService(
         IUnitOfWork unitOfWork,
         IStatementMaskingService maskingService,
         IStatementGridParser parser,
-        IImportProfileRepository profileRepository)
+        IImportProfileService profileService)
     {
         _unitOfWork = unitOfWork;
         _maskingService = maskingService;
         _parser = parser;
-        _profileRepository = profileRepository;
+        _profileService = profileService;
     }
 
     public StatementImportService(IUnitOfWork unitOfWork, IStatementMaskingService maskingService, IStatementGridParser parser)
-        : this(unitOfWork, maskingService, parser, new ImportProfileRepository(unitOfWork, parser, maskingService, new ImportProfileRuleValidator()))
+        : this(unitOfWork, maskingService, parser, new ImportProfileService(new ImportProfileRepository(unitOfWork), unitOfWork, parser, maskingService, new ImportProfileRuleValidator()))
     {
     }
 
@@ -52,36 +54,63 @@ public partial class StatementImportService : IStatementImportService
         : this(unitOfWork, new StatementMaskingService(), new StatementGridParser())
     {
     }
+    #endregion
 
-    public async Task<StatementImportAnalysis> AnalyzeAsync(IFormFile file, string? sheetName, int? headerRow, int? transactionEndRow, string? profileSID, string? dateFormat, string? mappingJson, string? accountSID)
+    #region Analyze
+    /// <summary>
+    /// Parses and analyzes a bank statement file for duplicate detection and column mapping.
+    /// </summary>
+    public async Task<StatementImportAnalysis> AnalyzeAsync(
+        IFormFile file,
+        string? sheetName,
+        int? headerRow,
+        int? transactionEndRow,
+        string? profileSID,
+        string? dateFormat,
+        string? mappingJson,
+        string? accountSID,
+        CancellationToken cancellationToken = default)
     {
         StatementParseResult parsed;
-        try { parsed = await _parser.ParseWithMetadataAsync(file); }
+        try { parsed = await _parser.ParseWithMetadataAsync(file, cancellationToken); }
         catch (StatementParsingException exception) { throw new HttpStatusCodeException(400, exception.Message); }
         var fileType = parsed.FileType;
         var grids = parsed.Grids;
-        var sheets = grids.Select(grid => new SourceSheet(grid.Name, grid.Rows.Select(row => row.Cells).ToList(), grid.TotalRows, grid.Rows.TakeLast(30).Select(row => row.Cells).ToList())).ToList();
 
         var profileRepo = _unitOfWork.GetRepository<ImportProfile>();
         var versionRepo = _unitOfWork.GetRepository<ImportProfileVersion>();
         var profile = !string.IsNullOrWhiteSpace(profileSID)
-            ? await profileRepo.AsQueryable(enableTracking: false).SingleOrDefaultAsync(p => p.ImportProfileSID == profileSID && p.Status == Constants.StatusType.Active)
+            ? await profileRepo.AsQueryable(enableTracking: false)
+                .SingleOrDefaultAsync(p => p.ImportProfileSID == profileSID && p.Status == Constants.StatusType.Active, cancellationToken)
             : null;
-        var selected = sheets.FirstOrDefault(s => string.Equals(s.Name, sheetName ?? profile?.WorksheetName, StringComparison.OrdinalIgnoreCase)) ?? sheets[0];
+        var selectedGrid = grids.FirstOrDefault(g => string.Equals(g.Name, sheetName ?? profile?.WorksheetName, StringComparison.OrdinalIgnoreCase)) ?? grids[0];
+        var selected = new SourceSheet(
+            selectedGrid.Name,
+            selectedGrid.Rows.Select(row => row.Cells).ToList(),
+            selectedGrid.TotalRows,
+            selectedGrid.Rows.TakeLast(30).Select(row => row.Cells).ToList());
         var candidates = FindHeaderCandidates(selected.Rows);
-        profile ??= await SuggestProfileAsync(fileType, selected, candidates);
+        profile ??= await SuggestProfileAsync(fileType, selected, candidates, cancellationToken);
         var profileVersion = profile?.CurrentVersionID is int currentVersionId
-            ? await versionRepo.AsQueryable(enableTracking: false).SingleOrDefaultAsync(version => version.ImportProfileVersionID == currentVersionId)
+            ? await versionRepo.AsQueryable(enableTracking: false)
+                .SingleOrDefaultAsync(version => version.ImportProfileVersionID == currentVersionId, cancellationToken)
             : null;
 
         var selectedHeader = headerRow ?? FindProfileHeaderRow(profile, selected.Rows) ?? profile?.HeaderRow ?? candidates.FirstOrDefault()?.RowNumber ?? 1;
         if (selectedHeader < 1 || selectedHeader > selected.Rows.Count) throw new HttpStatusCodeException(400, "The selected header row is outside the statement.");
-        var headers = ImportProfileRepository.MakeUniqueHeaders(selected.Rows[selectedHeader - 1]);
-        var mapping = !string.IsNullOrWhiteSpace(mappingJson)
-            ? ImportProfileRepository.DeserializeMapping(mappingJson, headers)
-            : profileVersion != null
+        var headers = ImportProfileService.MakeUniqueHeaders(selected.Rows[selectedHeader - 1]);
+        StatementColumnMapping mapping;
+        if (!string.IsNullOrWhiteSpace(mappingJson))
+        {
+            try { mapping = ImportProfileService.DeserializeMapping(mappingJson, headers); }
+            catch (JsonException) { throw new HttpStatusCodeException(400, "Invalid column mapping JSON."); }
+        }
+        else
+        {
+            mapping = profileVersion != null
                 ? MappingFromIndexes(headers, profileVersion)
-                : profile == null ? SuggestMapping(headers) : ImportProfileRepository.DeserializeMapping(profile.ColumnMappingJson, headers);
+                : profile == null ? SuggestMapping(headers) : ImportProfileService.DeserializeMapping(profile.ColumnMappingJson, headers);
+        }
         var effectiveDateFormat = dateFormat ?? profileVersion?.DateFormat ?? profile?.DateFormat;
         var transactionEnd = ResolveTransactionEndRow(selected.Rows, selectedHeader, candidates, profile, transactionEndRow, profileVersion?.FooterMarker);
         var result = new StatementImportAnalysis
@@ -89,7 +118,7 @@ public partial class StatementImportService : IStatementImportService
             FileName = file.FileName,
             FileType = fileType,
             FileHash = parsed.FileHash,
-            Sheets = sheets.Select(s => s.Name).ToList(),
+            Sheets = grids.Select(g => g.Name).ToList(),
             SelectedSheet = selected.Name,
             HeaderRow = selectedHeader,
             TransactionEndRow = transactionEnd,
@@ -111,20 +140,25 @@ public partial class StatementImportService : IStatementImportService
             result.Rows.Add(ParseRow(source, indexes, mapping, effectiveDateFormat, index + 1));
         }
 
-        if (!string.IsNullOrWhiteSpace(accountSID)) await MarkDuplicatesAsync(result.Rows, accountSID);
+        if (!string.IsNullOrWhiteSpace(accountSID)) await MarkDuplicatesAsync(result.Rows, accountSID, cancellationToken);
 
         return result;
     }
+    #endregion
 
-    public async Task<StatementImportCommitResult> CommitAsync(CommitStatementImportRequest request)
+    #region Commit
+    /// <summary>
+    /// Commits validated statement rows as transactions within a tracked import batch.
+    /// </summary>
+    public async Task<StatementImportCommitResult> CommitAsync(CommitStatementImportRequest request, CancellationToken cancellationToken = default)
     {
         if (request.SaveProfile != null) throw new HttpStatusCodeException(400, "Create reusable profiles from Import Profiles using a sample statement file.");
         var account = await _unitOfWork.GetRepository<Account>().AsQueryable(enableTracking: false)
-            .SingleOrDefaultAsync(a => a.AccountSID == request.AccountSID && a.Status == Constants.StatusType.Active)
+            .SingleOrDefaultAsync(a => a.AccountSID == request.AccountSID && a.Status == Constants.StatusType.Active, cancellationToken)
             ?? throw new HttpStatusCodeException(400, "Select an active CashBook account.");
         var fileHash = NormalizeFileHash(request.FileHash);
         var batchRepo = _unitOfWork.GetRepository<ImportBatch>();
-        if (fileHash != null && await batchRepo.AsQueryable(enableTracking: false).AnyAsync(batch => batch.AccountID == account.AccountID && batch.FileHash == fileHash && batch.UndoneDateTime == null))
+        if (fileHash != null && await batchRepo.AsQueryable(enableTracking: false).AnyAsync(batch => batch.AccountID == account.AccountID && batch.FileHash == fileHash && batch.UndoneDateTime == null, cancellationToken))
             throw new HttpStatusCodeException(400, "This statement file has already been imported for the selected account.");
         if (request.Rows.Count == 0 || request.Rows.Count > MaxRows) throw new HttpStatusCodeException(400, "There are no valid statement rows to import.");
 
@@ -140,10 +174,10 @@ public partial class StatementImportService : IStatementImportService
             ImportProfileVersion? profileVersion = null;
             if (!string.IsNullOrWhiteSpace(request.ProfileSID))
                 profile = await _unitOfWork.GetRepository<ImportProfile>().AsQueryable(enableTracking: false)
-                    .SingleOrDefaultAsync(p => p.ImportProfileSID == request.ProfileSID && p.Status == Constants.StatusType.Active);
+                    .SingleOrDefaultAsync(p => p.ImportProfileSID == request.ProfileSID && p.Status == Constants.StatusType.Active, cancellationToken);
             if (profile?.CurrentVersionID is int currentVersionId)
                 profileVersion = await _unitOfWork.GetRepository<ImportProfileVersion>().AsQueryable(enableTracking: false)
-                    .SingleOrDefaultAsync(version => version.ImportProfileVersionID == currentVersionId);
+                    .SingleOrDefaultAsync(version => version.ImportProfileVersionID == currentVersionId, cancellationToken);
 
             var importTime = DateTime.UtcNow.ToString("O");
             var batch = new ImportBatch
@@ -162,39 +196,40 @@ public partial class StatementImportService : IStatementImportService
                 InvalidRows = request.Rows.Count(r => ValidateRow(r).Count > 0),
                 Status = Constants.StatusType.Active
             };
-            await batchRepo.InsertAsync(batch);
-            await _unitOfWork.SaveAsync();
+            await batchRepo.InsertAsync(batch, cancellationToken);
+            await _unitOfWork.SaveAsync(cancellationToken);
 
             var transactionRepo = _unitOfWork.GetRepository<Transaction>();
-            var existing = await transactionRepo.AsQueryable(enableTracking: false)
-                .Where(t => t.AccountID == account.AccountID && t.Status == Constants.StatusType.Active)
-                .Select(t => new { t.TransactionDate, DescriptionName = t.Description != null ? t.Description.DescriptionName : null, t.Debit, t.Credit })
-                .ToListAsync();
-            var exactKeys = existing.Select(t => Fingerprint(t.TransactionDate, t.DescriptionName, t.Debit, t.Credit)).ToHashSet(StringComparer.Ordinal);
 
             var descriptionRepo = _unitOfWork.GetRepository<Description>();
-            var descriptions = await descriptionRepo.AsQueryable(enableTracking: false)
-                .Where(d => d.Status == Constants.StatusType.Active).ToListAsync();
+            var targetNames = selected
+                .Select(r => r.Description?.Trim())
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n!.ToLower())
+                .Distinct()
+                .ToList();
+            var descriptions = targetNames.Count == 0
+                ? new List<Description>()
+                : await descriptionRepo.AsQueryable(enableTracking: false)
+                    .Where(d => d.Status == Constants.StatusType.Active && targetNames.Contains(d.DescriptionName.ToLower()))
+                    .ToListAsync(cancellationToken);
             var descriptionLookup = descriptions.ToDictionary(d => d.DescriptionName, StringComparer.OrdinalIgnoreCase);
 
             var newDescriptions = new List<Description>();
             var rowsToInsert = new List<(StatementImportRow Row, Description Description)>();
-            var skipped = 0;
+            var skipped = request.Rows.Count(r => !r.Include && string.Equals(r.Status, "exact_duplicate", StringComparison.OrdinalIgnoreCase));
 
             foreach (var row in selected)
             {
-                var key = Fingerprint(row);
-                if (exactKeys.Contains(key)) { skipped++; continue; }
                 var (description, isNew) = GetOrCreateDescription(row.Description!, descriptionLookup);
                 if (isNew) newDescriptions.Add(description);
                 rowsToInsert.Add((row, description));
-                exactKeys.Add(key);
             }
 
             if (newDescriptions.Count > 0)
             {
-                await descriptionRepo.InsertRangeAsync(newDescriptions);
-                await _unitOfWork.SaveAsync();
+                await descriptionRepo.InsertRangeAsync(newDescriptions, cancellationToken);
+                await _unitOfWork.SaveAsync(cancellationToken);
             }
 
             var transactions = rowsToInsert.Select(item => new Transaction
@@ -215,35 +250,49 @@ public partial class StatementImportService : IStatementImportService
             }).ToList();
 
             if (transactions.Count > 0)
-                await transactionRepo.InsertRangeAsync(transactions);
+                await transactionRepo.InsertRangeAsync(transactions, cancellationToken);
 
             batch.ImportedRows = transactions.Count;
             batch.SkippedDuplicateRows = skipped;
             batchRepo.Update(batch);
-            await _unitOfWork.SaveAsync();
-            await _unitOfWork.CommitTransactionAsync();
+            await _unitOfWork.SaveAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
             return new StatementImportCommitResult { ImportBatchSID = batch.ImportBatchSID, ImportedRows = transactions.Count, SkippedDuplicateRows = skipped, InvalidRows = batch.InvalidRows };
         }
         catch { await _unitOfWork.RollbackTransactionAsync(); throw; }
     }
+    #endregion
 
-    public Task<IReadOnlyList<ImportProfileResponse>> GetProfilesAsync() => _profileRepository.GetAllAsync();
+    #region Profiles & History
+    /// <summary>
+    /// Lists all active import profiles.
+    /// </summary>
+    public Task<IReadOnlyList<ImportProfileResponse>> GetProfilesAsync(CancellationToken cancellationToken = default)
+        => _profileService.GetAllAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<ImportBatchResponse>> GetHistoryAsync() => await _unitOfWork.GetRepository<ImportBatch>()
+    /// <summary>
+    /// Retrieves recent statement import batches.
+    /// </summary>
+    public async Task<IReadOnlyList<ImportBatchResponse>> GetHistoryAsync(CancellationToken cancellationToken = default) => await _unitOfWork.GetRepository<ImportBatch>()
         .AsQueryable(enableTracking: false)
         .Include(b => b.Account).Include(b => b.ImportProfile).OrderByDescending(b => b.CreatedDateTime).Take(100)
-        .Select(b => new ImportBatchResponse { ImportBatchSID = b.ImportBatchSID, SourceFileName = b.SourceFileName, ProfileName = b.ImportProfile != null ? b.ImportProfile.Name : null, AccountName = b.Account.AccountName, TotalRows = b.TotalRows, ImportedRows = b.ImportedRows, SkippedDuplicateRows = b.SkippedDuplicateRows, InvalidRows = b.InvalidRows, CreatedDateTime = b.CreatedDateTime, UndoneDateTime = b.UndoneDateTime }).ToListAsync();
+        .Select(b => new ImportBatchResponse { ImportBatchSID = b.ImportBatchSID, SourceFileName = b.SourceFileName, ProfileName = b.ImportProfile != null ? b.ImportProfile.Name : null, AccountName = b.Account.AccountName, TotalRows = b.TotalRows, ImportedRows = b.ImportedRows, SkippedDuplicateRows = b.SkippedDuplicateRows, InvalidRows = b.InvalidRows, CreatedDateTime = b.CreatedDateTime, UndoneDateTime = b.UndoneDateTime }).ToListAsync(cancellationToken);
 
-    public async Task<bool> UndoAsync(string batchSID)
+    /// <summary>
+    /// Soft-deletes unmodified transactions from an import batch and marks it undone.
+    /// </summary>
+    public async Task<bool> UndoAsync(string batchSID, CancellationToken cancellationToken = default)
     {
         var batchRepo = _unitOfWork.GetRepository<ImportBatch>();
-        var batch = await batchRepo.SingleOrDefaultAsync(b => b.ImportBatchSID == batchSID && b.Status == Constants.StatusType.Active && b.UndoneDateTime == null);
+        var batch = await batchRepo.SingleOrDefaultAsync(
+            b => b.ImportBatchSID == batchSID && b.Status == Constants.StatusType.Active && b.UndoneDateTime == null,
+            cancellationToken: cancellationToken);
         if (batch == null) return false;
 
         var transactionRepo = _unitOfWork.GetRepository<Transaction>();
         var transactions = await transactionRepo.AsQueryable()
             .Where(t => t.ImportBatchID == batch.ImportBatchID && t.Status == Constants.StatusType.Active && t.CreatedDateTime == t.LastModifiedDateTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         foreach (var transaction in transactions)
         {
             transaction.Status = Constants.StatusType.Delete;
@@ -251,14 +300,16 @@ public partial class StatementImportService : IStatementImportService
         }
         batch.UndoneDateTime = DateTime.UtcNow.ToString("O");
         batchRepo.Update(batch);
-        await _unitOfWork.SaveAsync();
+        await _unitOfWork.SaveAsync(cancellationToken);
         return true;
     }
+    #endregion
 
-    private async Task<ImportProfile?> SuggestProfileAsync(string extension, SourceSheet sheet, List<StatementHeaderCandidate> candidates)
+    #region Parsing & Duplicate Helpers
+    private async Task<ImportProfile?> SuggestProfileAsync(string extension, SourceSheet sheet, List<StatementHeaderCandidate> candidates, CancellationToken cancellationToken = default)
     {
         var profileCandidates = await _unitOfWork.GetRepository<ImportProfile>().AsQueryable(enableTracking: false)
-            .Where(p => p.Status == Constants.StatusType.Active && p.FileType == extension.TrimStart('.')).ToListAsync();
+            .Where(p => p.Status == Constants.StatusType.Active && p.FileType == extension.TrimStart('.')).ToListAsync(cancellationToken);
         var headers = candidates.FirstOrDefault()?.Values ?? sheet.Rows.FirstOrDefault() ?? [];
         // Signatures are persisted only after masking, so imported headers must be masked before matching them.
         var normalized = _maskingService.MaskRow(headers).Select(Normalize).Where(x => x.Length > 0).ToHashSet();
@@ -281,8 +332,9 @@ public partial class StatementImportService : IStatementImportService
         if (!string.IsNullOrWhiteSpace(marker))
         {
             var normalizedMarker = Normalize(marker);
-            var markerRow = rows.Select((row, index) => new { RowNumber = index + 1, Text = Normalize(string.Join(" ", row)) })
-                .FirstOrDefault(row => row.RowNumber > headerRow && row.Text.Contains(normalizedMarker, StringComparison.Ordinal));
+            var markerRow = rows.Select((row, index) => new { RowNumber = index + 1, Row = row })
+                .Where(row => row.RowNumber > headerRow && row.Row.Any(cell => !string.IsNullOrWhiteSpace(cell)))
+                .FirstOrDefault(row => Normalize(string.Join(" ", row.Row)).Contains(normalizedMarker, StringComparison.Ordinal));
             if (markerRow != null) return markerRow.RowNumber - 1;
         }
 
@@ -305,18 +357,38 @@ public partial class StatementImportService : IStatementImportService
         return (description, true);
     }
 
-    private async Task MarkDuplicatesAsync(List<StatementImportRow> rows, string accountSID)
+    private async Task MarkDuplicatesAsync(List<StatementImportRow> rows, string accountSID, CancellationToken cancellationToken = default)
     {
+        var validRows = rows.Where(r => r.Issues.Count == 0).ToList();
+        if (validRows.Count == 0) return;
+
         var account = await _unitOfWork.GetRepository<Account>().AsQueryable(enableTracking: false)
-            .SingleOrDefaultAsync(a => a.AccountSID == accountSID && a.Status == Constants.StatusType.Active);
+            .SingleOrDefaultAsync(a => a.AccountSID == accountSID && a.Status == Constants.StatusType.Active, cancellationToken);
         if (account == null) return;
-        var existing = await _unitOfWork.GetRepository<Transaction>().AsQueryable(enableTracking: false)
-            .Where(t => t.AccountID == account.AccountID && t.Status == Constants.StatusType.Active)
+
+        var parsedDates = validRows
+            .Select(r => DateTime.TryParse(r.TransactionDate, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt) ? dt.Date : (DateTime?)null)
+            .Where(d => d.HasValue)
+            .Select(d => d!.Value)
+            .ToList();
+
+        var query = _unitOfWork.GetRepository<Transaction>().AsQueryable(enableTracking: false)
+            .Where(t => t.AccountID == account.AccountID && t.Status == Constants.StatusType.Active);
+
+        if (parsedDates.Count > 0)
+        {
+            // Pad by +/-1 day so timezone offsets in stored ISO strings are still matched.
+            var minBound = parsedDates.Min().AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var maxBound = parsedDates.Max().AddDays(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            query = query.Where(t => string.Compare(t.TransactionDate, minBound) >= 0 && string.Compare(t.TransactionDate, maxBound) < 0);
+        }
+
+        var existing = await query
             .Select(t => new { t.TransactionDate, DescriptionName = t.Description != null ? t.Description.DescriptionName : null, t.Debit, t.Credit })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         var exact = existing.Select(t => Fingerprint(t.TransactionDate, t.DescriptionName, t.Debit, t.Credit)).ToHashSet(StringComparer.Ordinal);
         var possible = existing.Select(t => PossibleFingerprint(t.TransactionDate, t.Debit, t.Credit)).ToHashSet(StringComparer.Ordinal);
-        foreach (var row in rows.Where(r => r.Issues.Count == 0))
+        foreach (var row in validRows)
         {
             if (exact.Contains(Fingerprint(row))) { row.Status = "exact_duplicate"; row.Include = false; }
             else if (possible.Contains(PossibleFingerprint(row))) row.Status = "possible_duplicate";
@@ -351,12 +423,16 @@ public partial class StatementImportService : IStatementImportService
 
     private StatementProfileSample CreateProfileSample(SourceSheet sheet, int transactionEndRow)
     {
-        var topRows = sheet.Rows.Take(70).Select((values, index) => new StatementProfileSampleRow { RowNumber = index + 1, Values = _maskingService.MaskRow(values) }).ToList();
+        var topRows = sheet.Rows.Take(Constants.StatementSampleTopRows).Select((values, index) => new StatementProfileSampleRow { RowNumber = index + 1, Values = _maskingService.MaskRow(values) }).ToList();
         var bottomStart = sheet.TotalRows - sheet.BottomRows.Count + 1;
         var bottomRows = sheet.BottomRows.Select((values, index) => new StatementProfileSampleRow { RowNumber = bottomStart + index, Values = _maskingService.MaskRow(values) })
-            .Where(row => row.RowNumber > 70).ToList();
+            .Where(row => row.RowNumber > Constants.StatementSampleTopRows).ToList();
         var footerMarker = sheet.Rows.Skip(transactionEndRow).Select(row => Normalize(string.Join(" ", _maskingService.MaskRow(row)))).FirstOrDefault(text => text.Length >= 8);
-        return new StatementProfileSample { TopRows = topRows, BottomRows = bottomRows, TransactionEndRow = transactionEndRow, FooterMarker = footerMarker?[..Math.Min(32, footerMarker.Length)] };
+        return ResponseMappingExtensions.BuildProfileSample(
+            topRows,
+            bottomRows,
+            transactionEndRow,
+            footerMarker?[..Math.Min(32, footerMarker.Length)]);
     }
 
     private static List<StatementHeaderCandidate> FindHeaderCandidates(List<List<string>> rows) => rows.Take(50).Select((row, index) => new StatementHeaderCandidate { RowNumber = index + 1, Score = row.Sum(HeaderScore), Values = row }).OrderByDescending(c => c.Score).ThenBy(c => c.RowNumber).ToList();
@@ -386,7 +462,7 @@ public partial class StatementImportService : IStatementImportService
         string? Get(string? header) => header != null && indexes.TryGetValue(header, out var i) && i < values.Count ? values[i].Trim() : null;
         var row = new StatementImportRow { RowNumber = rowNumber, Description = Get(mapping.Description), Notes = Get(mapping.Notes), Debit = ParseAmount(Get(mapping.Debit)), Credit = ParseAmount(Get(mapping.Credit)), Balance = ParseAmount(Get(mapping.Balance)) };
         var amount = ParseAmount(Get(mapping.Amount)); if (amount.HasValue) { if (amount.Value < 0) row.Debit = Math.Abs(amount.Value); else row.Credit = amount.Value; }
-        var dateText = Get(mapping.Date); if (TryParseDate(dateText, dateFormat, out var date)) row.TransactionDate = date.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"); else row.Issues.Add(string.IsNullOrWhiteSpace(dateText) ? "Transaction date is required." : "Choose the correct date format or fix this date.");
+        var dateText = Get(mapping.Date); if (TryParseDate(dateText, dateFormat, out var date)) row.TransactionDate = date.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture); else row.Issues.Add(string.IsNullOrWhiteSpace(dateText) ? "Transaction date is required." : "Choose the correct date format or fix this date.");
         row.Issues.AddRange(ValidateRow(row)); row.Issues = row.Issues.Distinct().ToList(); row.Status = row.Issues.Count > 0 ? "invalid" : "new"; row.Include = row.Issues.Count == 0; return row;
     }
     private static List<string> ValidateRow(StatementImportRow row) { var issues = new List<string>(); if (string.IsNullOrWhiteSpace(row.TransactionDate)) issues.Add("Transaction date is required."); else if (!DateTime.TryParseExact(row.TransactionDate, "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)) issues.Add("Transaction date must be a valid ISO date."); if (string.IsNullOrWhiteSpace(row.Description)) issues.Add("Description is required."); else if (row.Description.Trim().Length > 100) issues.Add("Description cannot exceed 100 characters."); if (row.Notes?.Length > 500) issues.Add("Notes cannot exceed 500 characters."); if ((row.Debit.HasValue && !double.IsFinite(row.Debit.Value)) || (row.Credit.HasValue && !double.IsFinite(row.Credit.Value))) issues.Add("Amounts must be finite numbers."); if ((row.Debit ?? 0) <= 0 && (row.Credit ?? 0) <= 0) issues.Add("A debit or credit amount is required."); if ((row.Debit ?? 0) > 0 && (row.Credit ?? 0) > 0) issues.Add("A row cannot contain both debit and credit."); return issues; }
@@ -397,7 +473,7 @@ public partial class StatementImportService : IStatementImportService
     private static string RowHash(StatementImportRow row) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{CanonicalDate(row.TransactionDate)}|{Normalize(row.Description)}|{row.Debit ?? 0:0.00}|{row.Credit ?? 0:0.00}|{row.Balance ?? 0:0.00}"))).ToLowerInvariant();
     private static string PossibleFingerprint(string? date, double? debit, double? credit) => $"{CanonicalDate(date)}|{debit ?? 0:0.00}|{credit ?? 0:0.00}";
     private static string PossibleFingerprint(StatementImportRow r) => PossibleFingerprint(r.TransactionDate, r.Debit, r.Credit);
-    private static string CanonicalDate(string? date) => DateTime.TryParse(date, out var parsed) ? parsed.ToString("yyyy-MM-dd") : date ?? "";
+    private static string CanonicalDate(string? date) => DateTime.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed) ? parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : date ?? "";
     private static string Normalize(string? value) => AlphanumericRegex().Replace((value ?? "").Trim().ToLowerInvariant(), "");
 
     [GeneratedRegex("[^0-9.\\-()]")]
@@ -405,6 +481,8 @@ public partial class StatementImportService : IStatementImportService
 
     [GeneratedRegex("[^a-z0-9]")]
     private static partial Regex AlphanumericRegex();
+    #endregion
 
     private sealed record SourceSheet(string Name, List<List<string>> Rows, int TotalRows, List<List<string>> BottomRows);
+    }
 }

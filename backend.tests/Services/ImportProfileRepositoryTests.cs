@@ -1,6 +1,6 @@
 using System.Text;
-using backend.model.DbModels;
-using backend.model.RequestModels;
+using backend.model.TenantDB;
+using backend.model.RequestModel;
 using backend.Controllers.V1;
 using backend.service.Repository.Implementations;
 using backend.service.Services.Implementations;
@@ -22,7 +22,11 @@ public class ImportProfileRepositoryTests
         return new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", name);
     }
     private static ImportProfileRuleRequest Rule(string name = "Synthetic") => new() { Name = name, HeaderRow = 1, EndRow = 2, DateFormat = "dd/MM/yyyy", Date = 0, Description = 1, Debit = 2 };
-    private static ImportProfileRepository Repository(AppDbContext context) => new(new UnitOfWork<AppDbContext>(context), new StatementGridParser(), new StatementMaskingService(), new ImportProfileRuleValidator());
+    private static ImportProfileService Repository(AppDbContext context)
+    {
+        var uow = new UnitOfWork<AppDbContext>(context);
+        return new ImportProfileService(new ImportProfileRepository(uow), uow, new StatementGridParser(), new StatementMaskingService(), new ImportProfileRuleValidator());
+    }
     [Fact]
     public async Task CreateAsync_CreatesVersionOneAndCurrentVersionFromMaskedFileData()
     {
@@ -218,5 +222,22 @@ public class ImportProfileRepositoryTests
             .Select(item => item.VersionNumber)
             .ToListAsync();
         Assert.Equal([1, 2, 3], versions);
+    }
+
+    [Fact]
+    public async Task RepositoryPersistence_ActiveNameExistsAndSoftDeleteBehaveCorrectly()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+        var service = Repository(context);
+        var created = await service.CreateAsync(File(), Rule("DirectRepoTest"));
+
+        var repo = new ImportProfileRepository(new UnitOfWork<AppDbContext>(context));
+        Assert.True(await repo.ActiveNameExistsAsync("DirectRepoTest"));
+        Assert.False(await repo.ActiveNameExistsAsync("DirectRepoTest", created.ImportProfileSID));
+
+        Assert.True(await repo.DeleteAsync(created.ImportProfileSID!));
+        Assert.False(await repo.ActiveNameExistsAsync("DirectRepoTest"));
+        Assert.Null(await repo.GetActiveBySidAsync(created.ImportProfileSID!));
     }
 }

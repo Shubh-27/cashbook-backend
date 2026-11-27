@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using backend.model.DbModels;
+using backend.model.TenantDB;
 
 #nullable disable
 
@@ -19,7 +19,7 @@ namespace backend.model.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");
 
-            modelBuilder.Entity("backend.model.DbModels.Account", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Account", b =>
                 {
                     b.Property<int>("AccountID")
                         .ValueGeneratedOnAdd()
@@ -70,7 +70,7 @@ namespace backend.model.Migrations
                     b.ToTable("Accounts", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Description", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Description", b =>
                 {
                     b.Property<int>("DescriptionID")
                         .ValueGeneratedOnAdd()
@@ -119,7 +119,7 @@ namespace backend.model.Migrations
                     b.ToTable("Descriptions", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Transaction", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Transaction", b =>
                 {
                     b.Property<int>("TransactionID")
                         .ValueGeneratedOnAdd()
@@ -203,7 +203,7 @@ namespace backend.model.Migrations
                     b.ToTable("Transactions", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.User", b =>
+            modelBuilder.Entity("backend.model.TenantDB.User", b =>
                 {
                     b.Property<int>("UserID")
                         .ValueGeneratedOnAdd()
@@ -262,7 +262,7 @@ namespace backend.model.Migrations
                     b.ToTable("Users", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Views.VwAccountsList", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Views.VwAccountsList", b =>
                 {
                     b.Property<string>("AccountName")
                         .HasColumnType("TEXT")
@@ -293,7 +293,7 @@ namespace backend.model.Migrations
                     b.ToView("vw_accounts_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Views.VwDescriptionsList", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Views.VwDescriptionsList", b =>
                 {
                     b.Property<string>("DescriptionName")
                         .HasColumnType("TEXT")
@@ -316,7 +316,7 @@ namespace backend.model.Migrations
                     b.ToView("vw_descriptions_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Views.VwTransactionsList", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Views.VwTransactionsList", b =>
                 {
                     b.Property<string>("AccountName")
                         .HasColumnType("TEXT")
@@ -375,13 +375,13 @@ namespace backend.model.Migrations
                     b.ToView("vw_transactions_list", (string)null);
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Transaction", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Transaction", b =>
                 {
-                    b.HasOne("backend.model.DbModels.Account", "Account")
+                    b.HasOne("backend.model.TenantDB.Account", "Account")
                         .WithMany("Transactions")
                         .HasForeignKey("AccountID");
 
-                    b.HasOne("backend.model.DbModels.Description", "Description")
+                    b.HasOne("backend.model.TenantDB.Description", "Description")
                         .WithMany("Transactions")
                         .HasForeignKey("DescriptionID");
 
@@ -390,12 +390,12 @@ namespace backend.model.Migrations
                     b.Navigation("Description");
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Account", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Account", b =>
                 {
                     b.Navigation("Transactions");
                 });
 
-            modelBuilder.Entity("backend.model.DbModels.Description", b =>
+            modelBuilder.Entity("backend.model.TenantDB.Description", b =>
                 {
                     b.Navigation("Transactions");
                 });

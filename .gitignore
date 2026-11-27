@@ -371,7 +371,12 @@ AppSetting.*.json
 *.db-journal
 *.db-shm
 *.db-wal
+*.bak
 *.db.bak
+.env*
+*.p12
+*.key
+*.pem
 
 # IDE and System
 .idea/

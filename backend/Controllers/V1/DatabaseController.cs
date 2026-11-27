@@ -23,9 +23,9 @@ namespace backend.Controllers.V1
         /// <returns>A downloadable .db file containing the database backup.</returns>
         [HttpGet("export")]
         [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> ExportDatabase()
+        public async Task<IActionResult> ExportDatabase(CancellationToken cancellationToken = default)
         {
-            var (fileBytes, contentType, fileName) = await _databaseService.ExportDatabaseAsync();
+            var (fileBytes, contentType, fileName) = await _databaseService.ExportDatabaseAsync(cancellationToken);
             return File(fileBytes, contentType, fileName);
         }
         #endregion
@@ -35,17 +35,18 @@ namespace backend.Controllers.V1
         /// Imports a SQLite database from an uploaded file, creating a safety backup and applying pending migrations.
         /// </summary>
         /// <param name="file">The uploaded SQLite .db file to import.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>An IActionResult indicating the outcome of the import operation.</returns>
         [HttpPost("import")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> ImportDatabase(IFormFile file)
+        public async Task<IActionResult> ImportDatabase(IFormFile file, CancellationToken cancellationToken = default)
         {
             if (file == null || file.Length == 0)
                 return BadRequest("No file uploaded.");
 
             using var stream = file.OpenReadStream();
-            await _databaseService.ImportDatabaseAsync(stream, file.FileName);
+            await _databaseService.ImportDatabaseAsync(stream, file.FileName, cancellationToken);
 
             return Ok(new { message = "Database restored and updated successfully." });
         }

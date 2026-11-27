@@ -1,5 +1,5 @@
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
 
 namespace backend.service.Services.Interfaces;
 

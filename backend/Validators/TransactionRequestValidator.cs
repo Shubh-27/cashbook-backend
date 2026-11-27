@@ -1,6 +1,6 @@
 using System;
 using System.Globalization;
-using backend.model.RequestModels;
+using backend.model.RequestModel;
 using FluentValidation;
 
 namespace backend.Validators

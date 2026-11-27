@@ -1,4 +1,4 @@
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using backend.service.Helpers;
 using backend.service.UnitOfWork;
 using Microsoft.Data.Sqlite;

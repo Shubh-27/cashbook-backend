@@ -1,5 +1,4 @@
 using backend.common;
-using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 using Newtonsoft.Json;
 
@@ -123,11 +122,6 @@ namespace backend.Middleware
                     content = JsonConvert.SerializeObject(result, settings);
                 }
             }
-            else if (string.IsNullOrEmpty(content))
-            {
-                content = JsonConvert.SerializeObject(result, settings);
-            }
-
             if (string.IsNullOrEmpty(content))
             {
                 content = JsonConvert.SerializeObject(result, settings);

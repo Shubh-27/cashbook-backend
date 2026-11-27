@@ -3,7 +3,7 @@
  * LAYER UNDER TEST: CONTROLLER LAYER (TransactionsController)
  * ----------------------------------------------------------------------------------------------------
  * TESTING APPROACH & RATIONALE:
- * Unit Testing with Moq (Mock<ITransactionRepository> and Mock<IExportService>).
+ * Unit Testing with Moq (Mock<ITransactionService> and Mock<IExportService>).
  *
  * WHY THIS APPROACH?
  * TransactionsController handles complex HTTP responses including JSON responses and file downloads (FileContentResult).
@@ -12,13 +12,13 @@
  * ====================================================================================================
  */
 
+using backend.common.Models;
 using System.Text;
 using backend.common;
 using backend.Controllers.V1;
-using backend.model.DbModels.Views;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
-using backend.service.Repository.Interfaces;
+using backend.model.TenantDB.Views;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
 using backend.service.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -31,15 +31,15 @@ namespace backend.tests.Controllers
     /// </summary>
     public class TransactionsControllerTests
     {
-        private readonly Mock<ITransactionRepository> _mockTxRepo;
+        private readonly Mock<ITransactionService> _mockTxService;
         private readonly Mock<IExportService> _mockExportService;
         private readonly TransactionsController _controller;
 
         public TransactionsControllerTests()
         {
-            _mockTxRepo = new Mock<ITransactionRepository>();
+            _mockTxService = new Mock<ITransactionService>();
             _mockExportService = new Mock<IExportService>();
-            _controller = new TransactionsController(_mockTxRepo.Object, _mockExportService.Object);
+            _controller = new TransactionsController(_mockTxService.Object, _mockExportService.Object);
         }
 
         /*
@@ -64,7 +64,7 @@ namespace backend.tests.Controllers
             const string contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             const string fileName = "Transactions_2026.xlsx";
 
-            _mockExportService.Setup(s => s.ExportTransactionsAsync(It.IsAny<ExportRequestModel>()))
+            _mockExportService.Setup(s => s.ExportTransactionsAsync(It.IsAny<ExportRequestModel>(), It.IsAny<CancellationToken>()))
                               .ReturnsAsync((fakeFileBytes, contentType, fileName));
 
             var request = new ExportRequestModel { ExcelName = "Transactions_2026" };
@@ -99,7 +99,7 @@ namespace backend.tests.Controllers
                 }
             };
 
-            _mockTxRepo.Setup(r => r.Search(It.IsAny<SearchRequestModel>()))
+            _mockTxService.Setup(r => r.Search(It.IsAny<SearchRequestModel>(), It.IsAny<CancellationToken>()))
                        .ReturnsAsync(pagedResult);
 
             // Act
@@ -124,7 +124,7 @@ namespace backend.tests.Controllers
             var request = new TransactionRequestModel { AccountSID = "acc-1", Debit = 100.0, TransactionDate = "2026-08-21T10:00:00Z" };
             var response = new TransactionResponseModel { TransactionSID = "tx-created", Debit = 100.0 };
 
-            _mockTxRepo.Setup(r => r.AddTransaction(request))
+            _mockTxService.Setup(r => r.AddTransaction(request, It.IsAny<CancellationToken>()))
                        .ReturnsAsync(response);
 
             // Act
@@ -145,7 +145,7 @@ namespace backend.tests.Controllers
         {
             // Arrange
             var request = new TransactionRequestModel { AccountSID = "non-existent" };
-            _mockTxRepo.Setup(r => r.AddTransaction(request))
+            _mockTxService.Setup(r => r.AddTransaction(request, It.IsAny<CancellationToken>()))
                        .ReturnsAsync((TransactionResponseModel?)null);
 
             // Act
@@ -168,7 +168,7 @@ namespace backend.tests.Controllers
             var request = new TransactionRequestModel { Debit = 150.0, TransactionDate = "2026-08-21T12:00:00Z" };
             var response = new TransactionResponseModel { TransactionSID = "tx-up", Debit = 150.0 };
 
-            _mockTxRepo.Setup(r => r.UpdateTransaction("tx-up", request))
+            _mockTxService.Setup(r => r.UpdateTransaction("tx-up", request, It.IsAny<CancellationToken>()))
                        .ReturnsAsync(response);
 
             // Act
@@ -189,7 +189,7 @@ namespace backend.tests.Controllers
         {
             // Arrange
             var request = new TransactionRequestModel { Debit = 20.0 };
-            _mockTxRepo.Setup(r => r.UpdateTransaction("unknown-tx", request))
+            _mockTxService.Setup(r => r.UpdateTransaction("unknown-tx", request, It.IsAny<CancellationToken>()))
                        .ReturnsAsync((TransactionResponseModel?)null);
 
             // Act
@@ -208,7 +208,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenTransactionDeleted_ReturnsOkWithSuccessTrue()
         {
             // Arrange
-            _mockTxRepo.Setup(r => r.DeleteTransaction("tx-del", "acc-owner"))
+            _mockTxService.Setup(r => r.DeleteTransaction("tx-del", "acc-owner", It.IsAny<CancellationToken>()))
                        .ReturnsAsync(true);
 
             // Act
@@ -227,7 +227,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenTransactionNotFound_ReturnsNotFound()
         {
             // Arrange
-            _mockTxRepo.Setup(r => r.DeleteTransaction("unknown-tx", "wrong-acc"))
+            _mockTxService.Setup(r => r.DeleteTransaction("unknown-tx", "wrong-acc", It.IsAny<CancellationToken>()))
                        .ReturnsAsync(false);
 
             // Act

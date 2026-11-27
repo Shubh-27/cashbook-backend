@@ -8,9 +8,10 @@ namespace backend.Extensions
         public static IServiceCollection AddUnitOfWork<TContext>(this IServiceCollection services)
            where TContext : DbContext
         {
-            services.AddScoped<IRepositoryFactory, UnitOfWork<TContext>>();
-            services.AddScoped<IUnitOfWork, UnitOfWork<TContext>>();
-            services.AddScoped<IUnitOfWork<TContext>, UnitOfWork<TContext>>();
+            services.AddScoped<UnitOfWork<TContext>>();
+            services.AddScoped<IRepositoryFactory>(sp => sp.GetRequiredService<UnitOfWork<TContext>>());
+            services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<UnitOfWork<TContext>>());
+            services.AddScoped<IUnitOfWork<TContext>>(sp => sp.GetRequiredService<UnitOfWork<TContext>>());
             return services;
         }
     }
