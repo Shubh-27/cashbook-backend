@@ -1,4 +1,4 @@
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging;
@@ -9,6 +9,7 @@ namespace backend.service.Helpers
     {
         public static void MigrateDatabaseSafely(AppDbContext db, ILogger? logger = null)
         {
+            EnsureForeignKeysAndValidate(db);
             var pendingMigrations = db.Database.GetPendingMigrations().ToList();
             var appliedMigrations = db.Database.GetAppliedMigrations().ToList();
 
@@ -63,6 +64,7 @@ namespace backend.service.Helpers
 
         public static async Task MigrateDatabaseSafelyAsync(AppDbContext db, ILogger? logger = null)
         {
+            await EnsureForeignKeysAndValidateAsync(db);
             var pendingMigrations = (await db.Database.GetPendingMigrationsAsync()).ToList();
             var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
@@ -115,6 +117,32 @@ namespace backend.service.Helpers
             }
         }
 
+        private static void EnsureForeignKeysAndValidate(AppDbContext db)
+        {
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+            db.Database.ExecuteSqlRaw("PRAGMA journal_mode = WAL;");
+            db.Database.ExecuteSqlRaw("PRAGMA busy_timeout = 5000;");
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open) connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA foreign_key_check;";
+            using var reader = command.ExecuteReader();
+            if (reader.Read()) throw new InvalidOperationException("Existing database contains foreign-key violations; migration was not started.");
+        }
+
+        private static async Task EnsureForeignKeysAndValidateAsync(AppDbContext db)
+        {
+            await db.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON;");
+            await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = WAL;");
+            await db.Database.ExecuteSqlRawAsync("PRAGMA busy_timeout = 5000;");
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA foreign_key_check;";
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync()) throw new InvalidOperationException("Existing database contains foreign-key violations; migration was not started.");
+        }
+
         private static void BaselineInitialMigration(AppDbContext db, ILogger? logger = null)
         {
             var connection = db.Database.GetDbConnection();
@@ -136,7 +164,7 @@ namespace backend.service.Helpers
             }
 
             var productVersion = typeof(AppDbContext).Assembly.GetName().Version?.ToString() ?? "10.0.5";
-            const string initialMigration = "20260315212014_InitialCreate";
+            const string initialMigration = backend.common.Constants.InitialMigrationId;
 
             using var insertCmd = connection.CreateCommand();
             insertCmd.CommandText = $"""
@@ -169,7 +197,7 @@ namespace backend.service.Helpers
             }
 
             var productVersion = typeof(AppDbContext).Assembly.GetName().Version?.ToString() ?? "10.0.5";
-            const string initialMigration = "20260315212014_InitialCreate";
+            const string initialMigration = backend.common.Constants.InitialMigrationId;
 
             using var insertCmd = connection.CreateCommand();
             insertCmd.CommandText = $"""

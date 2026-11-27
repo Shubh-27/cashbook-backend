@@ -1,5 +1,4 @@
 using backend.common;
-using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 using Newtonsoft.Json;
 
@@ -71,6 +70,7 @@ namespace backend.Middleware
             };
             context.Response.StatusCode = result.Code;
 
+            var content = string.Empty;
             if (ex is HttpStatusCodeException httpEx)
             {
                 context.Response.StatusCode = httpEx.StatusCode;
@@ -80,6 +80,15 @@ namespace backend.Middleware
                 result.Data = httpEx.JsonData;
                 _logger.LogError(httpEx.Message);
             }
+            else if (ex is StatementParsingException parsingEx)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                content = JsonConvert.SerializeObject(new
+                {
+                    error = parsingEx.Code,
+                    message = parsingEx.Message
+                }, settings);
+            }
             else if (ex is JsonReaderException && ex.Message.Contains("Could not convert string to DateTime"))
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -87,7 +96,6 @@ namespace backend.Middleware
                 result.Message = ex.Message;
             }
 
-            var content = string.Empty;
             if (ex.Message.Contains("isFluentError", StringComparison.OrdinalIgnoreCase))
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -114,15 +122,6 @@ namespace backend.Middleware
                     content = JsonConvert.SerializeObject(result, settings);
                 }
             }
-            else if (ex is HttpStatusCodeException)
-            {
-                content = JsonConvert.SerializeObject(result, settings);
-            }
-            else
-            {
-                content = JsonConvert.SerializeObject(result, settings);
-            }
-
             if (string.IsNullOrEmpty(content))
             {
                 content = JsonConvert.SerializeObject(result, settings);

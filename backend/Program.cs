@@ -1,7 +1,8 @@
 using backend.common;
 using backend.Extensions;
 using backend.Middleware;
-using backend.model.DbModels;
+using backend.model.TenantDB;
+using System.Text;
 
 namespace backend
 {
@@ -9,6 +10,7 @@ namespace backend
     {
         public static void Main(string[] args)
         {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             var builder = WebApplication.CreateBuilder(args);
 
             // Configure AppConfiguration
@@ -26,7 +28,7 @@ namespace backend
             builder.Services.AddUnitOfWork<AppDbContext>();
 
             // CORS Policy
-            builder.Services.AddCorsPolicy(appSettings);
+            builder.Services.AddCorsPolicy(appSettings, builder.Configuration);
 
             var app = builder.Build();
 
@@ -42,7 +44,7 @@ namespace backend
 
             // No HTTPS redirect — this is a local desktop app
             app.UseHttpStatusCodeExceptionMiddleware();
-            app.UseCors("AllowAll");
+            app.UseCors(Constants.CorsPolicyName);
             app.UseAuthorization();
             app.MapControllers();
 

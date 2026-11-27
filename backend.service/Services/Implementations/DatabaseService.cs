@@ -1,5 +1,5 @@
 using backend.common;
-using backend.model.DbModels;
+using backend.model.TenantDB;
 using backend.service.Services.Interfaces;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +21,7 @@ namespace backend.service.Services.Implementations
         #endregion
 
         #region Export Database
-        public async Task<(byte[] FileBytes, string ContentType, string FileName)> ExportDatabaseAsync()
+        public async Task<(byte[] FileBytes, string ContentType, string FileName)> ExportDatabaseAsync(CancellationToken cancellationToken = default)
         {
             var connectionString = _context.Database.GetDbConnection().ConnectionString;
             var builder = new SqliteConnectionStringBuilder(connectionString);
@@ -41,13 +41,13 @@ namespace backend.service.Services.Implementations
                 // This creates a consistent copy of the database even if it's currently being written to.
                 using (var connection = new SqliteConnection(connectionString))
                 {
-                    await connection.OpenAsync();
+                    await connection.OpenAsync(cancellationToken);
                     using var command = connection.CreateCommand();
                     command.CommandText = $"VACUUM INTO '{tempPath}'";
-                    await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync(cancellationToken);
                 }
 
-                var fileBytes = await File.ReadAllBytesAsync(tempPath);
+                var fileBytes = await File.ReadAllBytesAsync(tempPath, cancellationToken);
                 var fileName = $"bank_{DateTime.Now:yyyyMMdd_HHmmss}.db";
 
                 return (fileBytes, "application/octet-stream", fileName);
@@ -64,7 +64,7 @@ namespace backend.service.Services.Implementations
         #endregion
 
         #region Import Database
-        public async Task ImportDatabaseAsync(Stream fileStream, string fileName)
+        public async Task ImportDatabaseAsync(Stream fileStream, string fileName, CancellationToken cancellationToken = default)
         {
             if (fileStream == null || fileStream.Length == 0)
                 throw new HttpStatusCodeException(400, "No file uploaded.");
@@ -83,7 +83,7 @@ namespace backend.service.Services.Implementations
             var tempUploadPath = Path.Combine(Path.GetTempPath(), $"import_{Guid.NewGuid()}.db");
             using (var stream = new FileStream(tempUploadPath, FileMode.Create))
             {
-                await fileStream.CopyToAsync(stream);
+                await fileStream.CopyToAsync(stream, cancellationToken);
             }
 
             // 2. Validate SQLite file and attempt migration against the staged copy

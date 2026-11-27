@@ -12,12 +12,13 @@
  * ====================================================================================================
  */
 
+using backend.common.Models;
 using backend.common;
 using backend.Controllers.V1;
-using backend.model.DbModels.Views;
-using backend.model.RequestModels;
-using backend.model.ResponseModels;
-using backend.service.Repository.Interfaces;
+using backend.model.TenantDB.Views;
+using backend.model.RequestModel;
+using backend.model.ResponseModel;
+using backend.service.Repository.Interface;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
@@ -53,7 +54,7 @@ namespace backend.tests.Controllers
                 new DescriptionResponseModel { DescriptionSID = "desc-2", DescriptionName = "Utilities" }
             };
 
-            _mockRepo.Setup(r => r.GetDescriptions())
+            _mockRepo.Setup(r => r.GetDescriptions(It.IsAny<CancellationToken>()))
                      .ReturnsAsync(sampleList);
 
             // Act
@@ -87,7 +88,7 @@ namespace backend.tests.Controllers
                 }
             };
 
-            _mockRepo.Setup(r => r.Search(It.IsAny<SearchRequestModel>()))
+            _mockRepo.Setup(r => r.Search(It.IsAny<SearchRequestModel>(), It.IsAny<CancellationToken>()))
                      .ReturnsAsync(expectedPagedResult);
 
             // Act
@@ -112,7 +113,7 @@ namespace backend.tests.Controllers
             var request = new DescriptionRequestModel { DescriptionName = "Health Insurance" };
             var response = new DescriptionResponseModel { DescriptionSID = "desc-hi", DescriptionName = "Health Insurance" };
 
-            _mockRepo.Setup(r => r.AddDescription(request))
+            _mockRepo.Setup(r => r.AddDescription(request, It.IsAny<CancellationToken>()))
                      .ReturnsAsync(response);
 
             // Act
@@ -133,7 +134,7 @@ namespace backend.tests.Controllers
         {
             // Arrange
             var request = new DescriptionRequestModel { DescriptionName = "Invalid Desc" };
-            _mockRepo.Setup(r => r.AddDescription(request))
+            _mockRepo.Setup(r => r.AddDescription(request, It.IsAny<CancellationToken>()))
                      .ReturnsAsync((DescriptionResponseModel?)null);
 
             // Act
@@ -156,7 +157,7 @@ namespace backend.tests.Controllers
             var request = new DescriptionRequestModel { DescriptionName = "Updated Category" };
             var response = new DescriptionResponseModel { DescriptionSID = "desc-up", DescriptionName = "Updated Category" };
 
-            _mockRepo.Setup(r => r.UpdateDescription("desc-up", request))
+            _mockRepo.Setup(r => r.UpdateDescription("desc-up", request, It.IsAny<CancellationToken>()))
                      .ReturnsAsync(response);
 
             // Act
@@ -177,7 +178,7 @@ namespace backend.tests.Controllers
         {
             // Arrange
             var request = new DescriptionRequestModel { DescriptionName = "Unknown" };
-            _mockRepo.Setup(r => r.UpdateDescription("unknown-desc", request))
+            _mockRepo.Setup(r => r.UpdateDescription("unknown-desc", request, It.IsAny<CancellationToken>()))
                      .ReturnsAsync((DescriptionResponseModel?)null);
 
             // Act
@@ -196,7 +197,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenDescriptionExists_ReturnsOkWithSuccessTrue()
         {
             // Arrange
-            _mockRepo.Setup(r => r.DeleteDescription("desc-del"))
+            _mockRepo.Setup(r => r.DeleteDescription("desc-del", It.IsAny<CancellationToken>()))
                      .ReturnsAsync(true);
 
             // Act
@@ -215,7 +216,7 @@ namespace backend.tests.Controllers
         public async Task Delete_WhenDescriptionNotFound_ReturnsNotFound()
         {
             // Arrange
-            _mockRepo.Setup(r => r.DeleteDescription("unknown-desc"))
+            _mockRepo.Setup(r => r.DeleteDescription("unknown-desc", It.IsAny<CancellationToken>()))
                      .ReturnsAsync(false);
 
             // Act

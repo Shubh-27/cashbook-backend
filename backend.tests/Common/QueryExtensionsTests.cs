@@ -1,5 +1,7 @@
+using backend.common.Models;
 using backend.common;
-using backend.model.DbModels;
+using backend.model.Extensions;
+using backend.model.TenantDB;
 using static backend.common.Constants;
 using backend.tests.Helpers;
 using Microsoft.EntityFrameworkCore;

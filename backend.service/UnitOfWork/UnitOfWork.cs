@@ -11,15 +11,15 @@ namespace backend.service.UnitOfWork
     public interface IUnitOfWork : IDisposable
     {
         IRepository<TEntity> GetRepository<TEntity>() where TEntity : class;
-        Task<int> CommitAsync();
-        Task<int> CommitAsyncWithTransaction();
-        Task BeginTransactionAsync();
-        Task SaveAsync();
-        Task CommitTransactionAsync();
-        Task RollbackTransactionAsync();
+        Task<int> CommitAsync(CancellationToken cancellationToken = default);
+        Task<int> CommitAsyncWithTransaction(CancellationToken cancellationToken = default);
+        Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+        Task SaveAsync(CancellationToken cancellationToken = default);
+        Task CommitTransactionAsync(CancellationToken cancellationToken = default);
+        Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
         void ClearContext();
         void ClearChangeTracker();
-        IDbContextTransaction DbContextTransaction { get; set; }
+        IDbContextTransaction? DbContextTransaction { get; set; }
     }
 
     public interface IUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
@@ -30,9 +30,9 @@ namespace backend.service.UnitOfWork
     public class UnitOfWork<TContext> : IRepositoryFactory, IUnitOfWork<TContext>
         where TContext : DbContext, IDisposable
     {
-        private Dictionary<(Type type, string name), object> _repositories;
+        private Dictionary<(Type type, string name), object>? _repositories;
 
-        public IDbContextTransaction DbContextTransaction { get; set; }
+        public IDbContextTransaction? DbContextTransaction { get; set; }
 
         public TContext Context { get; }
 
@@ -51,50 +51,54 @@ namespace backend.service.UnitOfWork
         // ----------------------------------------------------------------
         // Simple commit — no transaction
         // ----------------------------------------------------------------
-        public async Task BeginTransactionAsync()
+        public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
-            DbContextTransaction ??= await Context.Database.BeginTransactionAsync();
+            DbContextTransaction ??= await Context.Database.BeginTransactionAsync(cancellationToken);
         }
 
         // Saves changes within the transaction WITHOUT committing.
         // Use this when you need the generated ID before continuing.
-        public async Task SaveAsync()
+        public async Task SaveAsync(CancellationToken cancellationToken = default)
         {
-            await Context.SaveChangesAsync();
+            await Context.SaveChangesAsync(cancellationToken);
             Context.ChangeTracker.Clear();
         }
 
         // Commits and closes the transaction.
         // Call once after all SaveAsync() steps are done.
-        public async Task CommitTransactionAsync()
+        public async Task CommitTransactionAsync(CancellationToken cancellationToken = default)
         {
             try
             {
                 if (DbContextTransaction == null)
                     throw new InvalidOperationException("No active transaction. Call BeginTransactionAsync first.");
 
-                await DbContextTransaction.CommitAsync();
+                await DbContextTransaction.CommitAsync(cancellationToken);
             }
             catch
             {
-                await DbContextTransaction.RollbackAsync();
+                if (DbContextTransaction != null)
+                    await DbContextTransaction.RollbackAsync(CancellationToken.None);
                 throw;
             }
             finally
             {
-                await DbContextTransaction.DisposeAsync();
-                DbContextTransaction = null;
+                if (DbContextTransaction != null)
+                {
+                    await DbContextTransaction.DisposeAsync();
+                    DbContextTransaction = null;
+                }
                 Context.ChangeTracker.Clear();
             }
         }
 
-        public async Task RollbackTransactionAsync()
+        public async Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
         {
             if (DbContextTransaction != null)
             {
                 try
                 {
-                    await DbContextTransaction.RollbackAsync();
+                    await DbContextTransaction.RollbackAsync(cancellationToken);
                 }
                 finally
                 {
@@ -105,9 +109,9 @@ namespace backend.service.UnitOfWork
             }
         }
 
-        public async Task<int> CommitAsync()
+        public async Task<int> CommitAsync(CancellationToken cancellationToken = default)
         {
-            var status = await Context.SaveChangesAsync();
+            var status = await Context.SaveChangesAsync(cancellationToken);
             Context.ChangeTracker.Clear();
             return status;
         }
@@ -115,21 +119,22 @@ namespace backend.service.UnitOfWork
         // ----------------------------------------------------------------
         // Commit with transaction — SQLite supports this natively
         // ----------------------------------------------------------------
-        public async Task<int> CommitAsyncWithTransaction()
+        public async Task<int> CommitAsyncWithTransaction(CancellationToken cancellationToken = default)
         {
             try
             {
-                await BeginTransactionAsync();
+                await BeginTransactionAsync(cancellationToken);
 
-                int result = await Context.SaveChangesAsync();
-                await DbContextTransaction.CommitAsync();
+                int result = await Context.SaveChangesAsync(cancellationToken);
+                if (DbContextTransaction != null)
+                    await DbContextTransaction.CommitAsync(cancellationToken);
                 Context.ChangeTracker.Clear();
                 return result;
             }
             catch (Exception)
             {
                 if (DbContextTransaction != null)
-                    await DbContextTransaction.RollbackAsync();
+                    await DbContextTransaction.RollbackAsync(CancellationToken.None);
 
                 throw;
             }
@@ -165,12 +170,13 @@ namespace backend.service.UnitOfWork
 
         internal object GetOrAddRepository(Type type, object repo)
         {
-            _repositories ??= new Dictionary<(Type type, string Name), object>();
+            _repositories ??= new Dictionary<(Type type, string name), object>();
 
-            if (_repositories.TryGetValue((type, repo.GetType().FullName), out var repository))
+            var repoName = repo.GetType().FullName ?? repo.GetType().Name;
+            if (_repositories.TryGetValue((type, repoName), out var repository))
                 return repository;
 
-            _repositories.Add((type, repo.GetType().FullName), repo);
+            _repositories.Add((type, repoName), repo);
             return repo;
         }
     }

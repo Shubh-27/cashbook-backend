@@ -1,34 +1,38 @@
 
+using backend.common.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Linq.Expressions;
 using backend.common;
+using backend.model.Extensions;
 
 namespace backend.service.UnitOfWork
 {
 
     public interface IRepository<T> where T : class
     {
-        Task<T> SingleOrDefaultAsync(
-            Expression<Func<T, bool>> predicate = null,
-            Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null,
-            Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null,
+        Task<T?> SingleOrDefaultAsync(
+            Expression<Func<T, bool>>? predicate = null,
+            Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy = null,
+            Func<IQueryable<T>, IIncludableQueryable<T, object>>? include = null,
             bool enableTracking = true,
-            bool ignoreQueryFilters = false);
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default);
 
         Task<IList<T>> GetAllAsync(
-            Expression<Func<T, bool>> predicate = null,
-            Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null,
-            Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null,
+            Expression<Func<T, bool>>? predicate = null,
+            Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy = null,
+            Func<IQueryable<T>, IIncludableQueryable<T, object>>? include = null,
             bool enableTracking = true,
             bool ignoreQueryFilters = false,
             CancellationToken cancellationToken = default);
 
         Task<int> GetCountAsync(
-            Expression<Func<T, bool>> predicate = null,
+            Expression<Func<T, bool>>? predicate = null,
             bool enableTracking = true,
-            bool ignoreQueryFilters = false);
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default);
 
         Task<PagedResult<T>> GetPagedResultAsync(
             SearchRequestModel request,
@@ -46,7 +50,7 @@ namespace backend.service.UnitOfWork
         Task InsertAsync(IEnumerable<T> entities,
             CancellationToken cancellationToken = default);
 
-        Task InsertRangeAsync(IEnumerable<T> entities);
+        Task InsertRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default);
 
         EntityEntry<T> Update(T entity);
         void Update(T[] entities);
@@ -68,12 +72,13 @@ namespace backend.service.UnitOfWork
 
         #region Get
 
-        public virtual async Task<T> SingleOrDefaultAsync(
-            Expression<Func<T, bool>> predicate = null,
-            Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null,
-            Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null,
+        public virtual async Task<T?> SingleOrDefaultAsync(
+            Expression<Func<T, bool>>? predicate = null,
+            Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy = null,
+            Func<IQueryable<T>, IIncludableQueryable<T, object>>? include = null,
             bool enableTracking = true,
-            bool ignoreQueryFilters = false)
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default)
         {
             IQueryable<T> query = _dbSet;
 
@@ -81,15 +86,15 @@ namespace backend.service.UnitOfWork
             if (include != null) query = include(query);
             if (predicate != null) query = query.Where(predicate);
             if (ignoreQueryFilters) query = query.IgnoreQueryFilters();
-            if (orderBy != null) return await orderBy(query).FirstOrDefaultAsync();
+            if (orderBy != null) return await orderBy(query).FirstOrDefaultAsync(cancellationToken);
 
-            return await query.FirstOrDefaultAsync();
+            return await query.FirstOrDefaultAsync(cancellationToken);
         }
 
         public virtual async Task<IList<T>> GetAllAsync(
-            Expression<Func<T, bool>> predicate = null,
-            Func<IQueryable<T>, IOrderedQueryable<T>> orderBy = null,
-            Func<IQueryable<T>, IIncludableQueryable<T, object>> include = null,
+            Expression<Func<T, bool>>? predicate = null,
+            Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy = null,
+            Func<IQueryable<T>, IIncludableQueryable<T, object>>? include = null,
             bool enableTracking = true,
             bool ignoreQueryFilters = false,
             CancellationToken cancellationToken = default)
@@ -121,7 +126,7 @@ namespace backend.service.UnitOfWork
             query = query.ApplyFilters(request.Filters);
             query = query.ApplySorting(request.SortBy, request.SortOrder);
 
-            return await query.ToPagedResultAsync(request.Page, request.PageSize);
+            return await query.ToPagedResultAsync(request.Page, request.PageSize, cancellationToken);
         }
 
         public virtual IQueryable<T> AsQueryable(bool enableTracking = true)
@@ -132,9 +137,10 @@ namespace backend.service.UnitOfWork
         }
 
         public virtual async Task<int> GetCountAsync(
-            Expression<Func<T, bool>> predicate = null,
+            Expression<Func<T, bool>>? predicate = null,
             bool enableTracking = true,
-            bool ignoreQueryFilters = false)
+            bool ignoreQueryFilters = false,
+            CancellationToken cancellationToken = default)
         {
             IQueryable<T> query = _dbSet;
 
@@ -142,7 +148,7 @@ namespace backend.service.UnitOfWork
             if (predicate != null) query = query.Where(predicate);
             if (ignoreQueryFilters) query = query.IgnoreQueryFilters();
 
-            return await query.CountAsync();
+            return await query.CountAsync(cancellationToken);
         }
 
         #endregion
@@ -166,9 +172,9 @@ namespace backend.service.UnitOfWork
             return _dbSet.AddRangeAsync(entities, cancellationToken);
         }
 
-        public virtual Task InsertRangeAsync(IEnumerable<T> entities)
+        public virtual Task InsertRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default)
         {
-            return _dbSet.AddRangeAsync(entities);
+            return _dbSet.AddRangeAsync(entities, cancellationToken);
         }
 
         #endregion

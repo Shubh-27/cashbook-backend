@@ -3,7 +3,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![EF Core](https://img.shields.io/badge/EF_Core-10.0-blue.svg)](https://learn.microsoft.com/en-us/ef/core/)
 [![SQLite](https://img.shields.io/badge/SQLite-3.0-003B57.svg)](https://www.sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-127%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-188%20Passed-brightgreen.svg)]()
 
 The backend engine for CashBook, built with **ASP.NET Core (.NET 10.0)** following Clean Architecture principles, Repository and Unit of Work patterns, and Entity Framework Core with SQLite.
 
@@ -42,9 +42,9 @@ backend/
 │   ├── UnitOfWork/           # Unit of Work & generic Repository pattern implementation
 │   └── Helpers/              # Excel import/export utilities powered by ClosedXML
 ├── backend.model/            # Domain & Data Layer
-│   ├── DbModels/             # EF Core entities (Account, Transaction, Description, etc.) and AppDbContext
-│   ├── RequestModels/        # Incoming API request DTOs & query filters
-│   ├── ResponseModels/       # Outgoing standardized API response DTOs
+│   ├── TenantDB/             # EF Core entities (Account, Transaction, Description, etc.) and AppDbContext
+│   ├── RequestModel/         # Incoming API request DTOs & query filters
+│   ├── ResponseModel/        # Outgoing standardized API response DTOs
 │   └── Migrations/           # EF Core code-first migration snapshots
 ├── backend.common/           # Cross-Cutting Concerns
 │   ├── AppConfiguration.cs   # Strongly-typed configuration bindings
@@ -69,7 +69,8 @@ backend/
 - **Dynamic Querying**: Generic `QueryExtensions` supporting paginated grids, column-based sorting, and multi-field filtering.
 - **Automated Database Migrations**: EF Core migrations automatically applied on application launch.
 - **ClosedXML Excel Processing**: High-speed Excel export and import for transaction logs.
-- **Comprehensive Test Suite**: 127+ unit and integration tests with xUnit, Moq, and SQLite in-memory fixtures.
+- **Statement Import Profiles**: CSV, XLS, and XLSX parsing with masked preview samples, versioned column mappings, duplicate-file detection, and immutable profile versions.
+- **Comprehensive Test Suite**: 188 unit and integration tests with xUnit, Moq, and SQLite fixtures.
 
 ---
 
@@ -142,6 +143,19 @@ http://localhost:5050/swagger
 | `DELETE` | `/api/v1/transactions/{id}` | Delete a transaction |
 | `GET` | `/api/v1/transactions/export` | Export filtered transactions to Excel (`.xlsx`) |
 | `POST` | `/api/v1/transactions/import` | Import transactions from Excel file |
+
+### Statement imports and reusable profiles
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/import-profiles/preview` | Parse a CSV, XLS, or XLSX file and return a masked layout preview. The file is never stored. |
+| `POST` | `/api/import-profiles` | Create a profile and immutable version 1 from a multipart file and rule JSON. |
+| `GET` | `/api/import-profiles/{sid}` | Read the current version and masked saved sample. |
+| `PUT` | `/api/import-profiles/{sid}` | Create a new immutable version from revised rules, optionally with a new file. |
+| `POST` | `/api/statement-imports/analyze` | Parse a statement with a selected profile before review. |
+| `POST` | `/api/statement-imports/commit` | Commit reviewed transactions and record the selected profile version. |
+
+Statement data stays on the local machine. Uploaded source files are parsed in memory and not retained; saved profile samples and statement metadata are masked server-side.
 
 ### Descriptions (`/api/v1/descriptions`)
 
@@ -258,3 +272,6 @@ dotnet publish backend/backend.csproj \
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+# Cashbook backend
+
+Import-profile endpoints are intentionally unauthenticated for this single-user personal app. Add authorization and profile ownership before any multi-user deployment.

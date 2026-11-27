@@ -1,8 +1,11 @@
 using System.IO.Compression;
 using System.Text.Json;
 using backend.common;
-using backend.model.DbModels;
-using backend.model.DbModels.Views;
+using backend.common.Models;
+using backend.model.Extensions;
+using backend.model.RequestModel;
+using backend.model.TenantDB;
+using backend.model.TenantDB.Views;
 using backend.service.Services.Interfaces;
 using backend.service.UnitOfWork;
 using ClosedXML.Excel;
@@ -23,10 +26,10 @@ namespace backend.service.Services.Implementations
         #endregion
 
         #region Export Transactions (Excel/CSV)
-        public async Task<(byte[] FileContents, string ContentType, string FileName)> ExportTransactionsAsync(ExportRequestModel request)
+        public async Task<(byte[] FileContents, string ContentType, string FileName)> ExportTransactionsAsync(ExportRequestModel request, CancellationToken cancellationToken = default)
         {
             // 1. Resolve which accounts are in scope and determine export mode
-            var context = await ResolveAccountContextAsync(request);
+            var context = await ResolveAccountContextAsync(request, cancellationToken);
 
             // 2. Fetch data – always strip description filter (we group by it instead)
             var filtersToApply = request.Filters?.Where(f =>
@@ -37,7 +40,7 @@ namespace backend.service.Services.Implementations
             query = query.ApplyFilters(filtersToApply);
             query = query.OrderBy(t => t.TransactionDate);
 
-            var transactions = await query.ToListAsync();
+            var transactions = await query.ToListAsync(cancellationToken);
 
             // 3. Financial year label
             var fy = GetFinancialYearString(request);
@@ -180,51 +183,6 @@ namespace backend.service.Services.Implementations
             workbook.SaveAs(stream);
 
             var fileName = $"Cashbook_MergedAccounts_{fy}.xlsx";
-            return (stream.ToArray(), fileName);
-        }
-
-        private (byte[] Bytes, string FileName) GenerateSingleSheetMultiAccountExport(List<VwTransactionsList> transactions, string fy)
-        {
-            using var workbook = new XLWorkbook();
-            
-            string sheetName = GetUniqueSheetName(workbook, "All Accounts");
-            var ws = workbook.Worksheets.Add(sheetName);
-            int currentRow = 1;
-
-            var accountGroups = transactions.GroupBy(x => new { x.AccountSID, x.AccountName, x.AccountNumber, x.BankName }).ToList();
-            
-            foreach(var accGroup in accountGroups.OrderBy(g => g.Key.AccountName))
-            {
-                WriteSheetHeaderInline(ws, ref currentRow, accGroup.Key.AccountName, fy, accGroup.Key.AccountNumber, accGroup.Key.BankName);
-                currentRow++; 
-                WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: true);
-                WriteTransactionRows(ws, ref currentRow, accGroup.ToList(), isAccountLayout: true);
-                WriteFooterRow(ws, ref currentRow, accGroup.ToList());
-                currentRow += TableSpacing;
-            }
-
-            var descriptionGroups = transactions.GroupBy(x => new { x.DescriptionSID, x.DescriptionName }).ToList();
-            foreach (var grp in descriptionGroups.OrderBy(g => g.Key.DescriptionName))
-            {
-                if (string.IsNullOrEmpty(grp.Key.DescriptionName)) continue;
-
-                WriteSheetHeaderInline(ws, ref currentRow, grp.Key.DescriptionName, fy);
-                currentRow++;
-                WriteColumnHeadersInline(ws, ref currentRow, isAccountLayout: false);
-                WriteTransactionRows(ws, ref currentRow, grp.ToList(), isAccountLayout: false);
-                WriteFooterRow(ws, ref currentRow, grp.ToList());
-                currentRow += TableSpacing;
-            }
-
-            ws.Columns().AdjustToContents();
-
-            if (!workbook.Worksheets.Any())
-                workbook.AddWorksheet("No Data");
-
-            using var stream = new MemoryStream();
-            workbook.SaveAs(stream);
-            
-            var fileName = $"Cashbook_CombinedAccounts_{fy}.xlsx";
             return (stream.ToArray(), fileName);
         }
 
@@ -507,7 +465,7 @@ namespace backend.service.Services.Implementations
             return finalName;
         }
 
-        private async Task<AccountExportContext> ResolveAccountContextAsync(ExportRequestModel request)
+        private async Task<AccountExportContext> ResolveAccountContextAsync(ExportRequestModel request, CancellationToken cancellationToken = default)
         {
             var accountFilterKey = new[] { "account_sid", "AccountSID" };
 
@@ -517,7 +475,7 @@ namespace backend.service.Services.Implementations
             if (equalsFilter != null && !string.IsNullOrEmpty(equalsFilter.Value?.ToString()))
             {
                 var sid = equalsFilter.Value.ToString()!;
-                var acc = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(a => a.AccountSID == sid);
+                var acc = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(a => a.AccountSID == sid, cancellationToken: cancellationToken);
                 if (acc != null)
                 {
                     var entry = new AccountEntry(acc.AccountSID, acc.AccountName, acc.AccountNumber, acc.BankName);
@@ -537,7 +495,7 @@ namespace backend.service.Services.Implementations
 
                 if (sids.Count == 1)
                 {
-                    var acc = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(a => a.AccountSID == sids[0]);
+                    var acc = await _unitOfWork.GetRepository<Account>().SingleOrDefaultAsync(a => a.AccountSID == sids[0], cancellationToken: cancellationToken);
                     if (acc != null)
                     {
                         var entry = new AccountEntry(acc.AccountSID, acc.AccountName, acc.AccountNumber, acc.BankName);
@@ -550,7 +508,7 @@ namespace backend.service.Services.Implementations
                         .AsQueryable(enableTracking: false)
                         .Where(a => sids.Contains(a.AccountSID))
                         .OrderBy(a => a.AccountName)
-                        .ToListAsync();
+                        .ToListAsync(cancellationToken);
 
                     var entries = accounts
                         .Select(a => new AccountEntry(a.AccountSID, a.AccountName, a.AccountNumber, a.BankName))
@@ -596,14 +554,6 @@ namespace backend.service.Services.Implementations
             foreach (var c in Path.GetInvalidFileNameChars())
                 name = name.Replace(c, '_');
             return (name, counter);
-        }
-
-        private static string EscapeCsv(string? field)
-        {
-            if (string.IsNullOrEmpty(field)) return string.Empty;
-            if (field.Contains(',') || field.Contains('"') || field.Contains('\n'))
-                return $"\"{field.Replace("\"", "\"\"")}\"";
-            return field;
         }
         #endregion
 
